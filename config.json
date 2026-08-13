@@ -1,0 +1,22 @@
+{
+    "launcher_name": "FenixCraft Launcher",
+    "launcher_version": "1.0.0",
+    "game_version": "1.21.1",
+    "mod_loader": "neoforge",
+    "server_address": "fenixcraft.ru",
+    "server_port": 25565,
+    "java_version": "21",
+    "java_download_url": "https://api.adoptium.net/v3/binary/latest/21/ga/linux/x64/jdk/hotspot/normal/eclipse",
+    "update_server_url": "https://fenixcraft.ru/api/launcher/update",
+    "mods_server_url": "https://fenixcraft.ru/api/launcher/mods",
+    "min_ram_mb": 2048,
+    "max_ram_mb": 4096,
+    "theme": {
+        "primary_color": "#FF6B35",
+        "secondary_color": "#1A1A2E",
+        "accent_color": "#E94560",
+        "text_color": "#FFFFFF",
+        "background_gradient_start": "#0F0F1E",
+        "background_gradient_end": "#1A1A2E"
+    }
+}
