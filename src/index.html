@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <title>FenixCraft Launcher</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: #080d11;
+      color: #e2e8f0;
+      user-select: none;
+      overflow: hidden;
+    }
+    .titlebar-drag { -webkit-app-region: drag; }
+    .no-drag { -webkit-app-region: no-drag; }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: #0c1318; }
+    ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #10b981; }
+    .glass-card {
+      background: rgba(15, 23, 30, 0.85);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      backdrop-filter: blur(12px);
+    }
+    .active-nav {
+      background: linear-gradient(90deg, rgba(16, 185, 129, 0.18) 0%, rgba(16, 185, 129, 0.02) 100%);
+      border-left: 3px solid #10b981;
+      color: #ffffff;
+    }
+  </style>
+</head>
+<body class="h-screen w-screen flex flex-col">
+
+  <header data-tauri-drag-region class="h-11 bg-[#060a0d] border-b border-white/5 flex items-center justify-between px-4 titlebar-drag shrink-0">
+    <div class="flex items-center space-x-3 pointer-events-none">
+      <div class="w-7 h-7 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-400 font-bold">🦅</div>
+      <span class="font-bold text-white tracking-wide text-lg">FenixCraft</span>
+      <span class="text-xs text-slate-500 pl-6">Больше, чем просто игра...</span>
+    </div>
+
+    <div class="flex items-center space-x-4 no-drag text-slate-400">
+      <button id="btn-toggle-console" title="Консоль отладки" class="hover:text-emerald-400 transition">📟</button>
+      <button id="btn-open-faq" title="FAQ и Правила" class="hover:text-emerald-400 transition">📜</button>
+      <button id="btn-top-settings" title="Настройки" class="hover:text-emerald-400 transition">⚙️</button>
+      <div class="h-4 w-[1px] bg-white/10 mx-1"></div>
+      <button onclick="window.fenixAPI.minimize()" class="hover:text-white px-1.5">—</button>
+      <button onclick="window.fenixAPI.maximize()" class="hover:text-white px-1.5">▢</button>
+      <button onclick="window.fenixAPI.close()" class="hover:text-red-400 px-1.5">✕</button>
+    </div>
+  </header>
+
+  <div class="flex flex-1 overflow-hidden">
+    <aside class="w-56 bg-[#0a1015] border-r border-white/5 flex flex-col justify-between p-3 shrink-0">
+      <nav class="space-y-1.5 mt-2">
+        <button data-tab="home" class="nav-btn active-nav w-full flex items-center space-x-3 px-4 py-2.5 rounded-r-lg text-sm font-medium transition">
+          <span class="text-emerald-400">🏠</span> <span>Главная</span>
+        </button>
+        <button data-tab="home" class="nav-btn w-full flex items-center space-x-3 px-4 py-2.5 rounded-r-lg text-sm font-medium text-slate-400 hover:text-white transition">
+          <span>▶️</span> <span>Играть</span>
+        </button>
+        <button data-tab="mods" class="nav-btn w-full flex items-center space-x-3 px-4 py-2.5 rounded-r-lg text-sm font-medium text-slate-400 hover:text-white transition">
+          <span>🧩</span> <span>Моды</span>
+        </button>
+        <button data-tab="faq" class="nav-btn w-full flex items-center space-x-3 px-4 py-2.5 rounded-r-lg text-sm font-medium text-slate-400 hover:text-white transition">
+          <span>📦</span> <span>FAQ и Правила</span>
+        </button>
+        <button data-tab="servers" class="nav-btn w-full flex items-center space-x-3 px-4 py-2.5 rounded-r-lg text-sm font-medium text-slate-400 hover:text-white transition">
+          <span>🖧</span> <span>Серверы</span>
+        </button>
+        <button data-tab="settings" class="nav-btn w-full flex items-center space-x-3 px-4 py-2.5 rounded-r-lg text-sm font-medium text-slate-400 hover:text-white transition">
+          <span>⚙️</span> <span>Настройки</span>
+        </button>
+      </nav>
+
+      <div class="p-3 rounded-xl glass-card flex items-center space-x-3">
+        <div class="w-10 h-10 rounded-full bg-emerald-600/30 border border-emerald-500 flex items-center justify-center text-lg">🟩</div>
+        <div class="overflow-hidden">
+          <div id="sidebar-username" class="text-sm font-semibold text-white truncate">AndreyGusev</div>
+          <div class="flex items-center space-x-1.5 text-xs text-emerald-400">
+            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span id="sidebar-account-type">Онлайн</span>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <main class="flex-1 overflow-y-auto p-5 space-y-5 bg-[#080d11]">
+      <div id="tab-home" class="space-y-5">
+        <div class="relative rounded-2xl overflow-hidden h-64 border border-white/10 flex flex-col justify-end p-7 bg-cover bg-center"
+             style="background-image: linear-gradient(90deg, rgba(8,13,17,0.92) 0%, rgba(8,13,17,0.4) 60%, rgba(8,13,17,0.1) 100%), url('https://images.unsplash.com/photo-1607513746994-51f730a44832?w=1200&q=80');">
+          <div class="max-w-md space-y-2">
+            <div class="text-xs uppercase tracking-widest text-emerald-400 font-bold">FenixCraft Official</div>
+            <h1 class="text-3xl font-extrabold text-white tracking-tight">MINECRAFT <span class="text-sm font-normal block text-slate-300">JAVA EDITION</span></h1>
+            <p class="text-base font-semibold text-white pt-1">Исследуй. Строй. Выживай.</p>
+            <p class="text-xs text-slate-300 pb-2">Твой мир. Твои правила. Авто-вход на выбранный сервер.</p>
+
+            <div class="flex items-center space-x-3 pt-1">
+              <button id="btn-play" class="bg-emerald-500 hover:bg-emerald-400 active:scale-95 transition text-slate-950 font-bold px-8 py-3 rounded-xl flex items-center space-x-2 shadow-lg shadow-emerald-500/25">
+                <span>▶</span> <span id="btn-play-text">Играть</span>
+              </button>
+
+              <select id="select-version" class="bg-[#111921]/90 border border-white/15 text-white text-sm rounded-xl px-4 py-3 focus:outline-none focus:border-emerald-500">
+                <option value="1.21.8-neoforge">1.21.8 (NeoForge)</option>
+                <option value="1.21.8-fabric">1.21.8 (Fabric + Iris)</option>
+                <option value="1.21.8-vanilla">1.21.8 (Vanilla)</option>
+                <option value="1.21.1-neoforge">1.21.1 (NeoForge)</option>
+                <option value="1.21.1-fabric">1.21.1 (Fabric + Iris)</option>
+                <option value="26.3-neoforge">26.3 (Fenix Pack)</option>
+              </select>
+
+              <button id="btn-quick-settings" class="bg-[#111921]/90 hover:bg-[#1a2632] border border-white/15 p-3 rounded-xl text-slate-300">🎚️</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="progress-container" class="hidden glass-card p-3 rounded-xl">
+          <div class="flex justify-between text-xs text-slate-300 mb-1">
+            <span id="progress-status">Проверка контрольных сумм SHA-256...</span>
+            <span id="progress-percent">0%</span>
+          </div>
+          <div class="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
+            <div id="progress-bar" class="bg-emerald-500 h-full w-0 transition-all duration-200"></div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-4 gap-4">
+          <div class="glass-card rounded-xl p-3.5 hover:border-emerald-500/40 transition cursor-pointer">
+            <div class="text-emerald-400 text-lg mb-1">🌱</div>
+            <div class="text-sm font-bold text-white">Последняя версия</div>
+            <div class="text-xs text-emerald-400 mt-0.5">1.21.8 — 26.3 →</div>
+          </div>
+          <div onclick="switchTab('mods')" class="glass-card rounded-xl p-3.5 hover:border-purple-500/40 transition cursor-pointer">
+            <div class="text-purple-400 text-lg mb-1">🧩</div>
+            <div class="text-sm font-bold text-white">Моды</div>
+            <div class="text-xs text-slate-400 mt-0.5">NeoForge / Fabric →</div>
+          </div>
+          <div onclick="switchTab('faq')" class="glass-card rounded-xl p-3.5 hover:border-cyan-500/40 transition cursor-pointer">
+            <div class="text-cyan-400 text-lg mb-1">📘</div>
+            <div class="text-sm font-bold text-white">FAQ и Правила</div>
+            <div class="text-xs text-slate-400 mt-0.5">Свод правил сервера →</div>
+          </div>
+          <div onclick="switchTab('servers')" class="glass-card rounded-xl p-3.5 hover:border-amber-500/40 transition cursor-pointer">
+            <div class="text-amber-400 text-lg mb-1">🖧</div>
+            <div class="text-sm font-bold text-white">Серверы</div>
+            <div class="text-xs text-slate-400 mt-0.5">play.fenixcraft.ru →</div>
+          </div>
+        </div>
+
+        <div>
+          <div class="flex items-center justify-between mb-3">
+            <div class="flex items-center space-x-2">
+              <h2 class="text-lg font-bold text-white">Новости ВКонтакте и Обновления</h2>
+              <span class="text-emerald-400 text-sm">📡</span>
+            </div>
+            <button id="btn-refresh-news" class="text-xs text-emerald-400 hover:underline">Обновить ленту ↻</button>
+          </div>
+          <div id="news-grid" class="grid grid-cols-3 gap-4"></div>
+        </div>
+      </div>
+
+      <div id="tab-settings" class="hidden space-y-5">
+        <h2 class="text-xl font-bold text-white">Настройки лаунчера и игры</h2>
+        <p class="text-xs text-slate-400">Все изменения автоматически применяются и сохраняются в реальном времени.</p>
+
+        <div class="grid grid-cols-2 gap-4">
+          <div class="glass-card p-4 rounded-xl space-y-3">
+            <h3 class="text-sm font-bold text-emerald-400">Авторизация</h3>
+            <div>
+              <label class="text-xs text-slate-400">Никнейм (для пиратки)</label>
+              <input id="cfg-username" type="text" class="w-full mt-1 bg-[#0b1218] border border-white/10 rounded-lg px-3 py-2 text-sm text-white" />
+            </div>
+            <div>
+              <label class="text-xs text-slate-400">Тип аккаунта</label>
+              <select id="cfg-account-type" class="w-full mt-1 bg-[#0b1218] border border-white/10 rounded-lg px-3 py-2 text-sm text-white">
+                <option value="offline">Пиратка (Свободный вход)</option>
+                <option value="microsoft">Лицензия Microsoft (OAuth 2.0)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="glass-card p-4 rounded-xl space-y-3">
+            <h3 class="text-sm font-bold text-emerald-400">Производительность и Экран</h3>
+            <div>
+              <div class="flex justify-between text-xs">
+                <span class="text-slate-400">Выделенная ОЗУ (RAM):</span>
+                <span id="ram-label" class="text-emerald-400 font-bold">4096 МБ</span>
+              </div>
+              <input id="cfg-ram" type="range" min="2048" max="16384" step="512" class="w-full mt-2 accent-emerald-500" />
+            </div>
+            <div class="grid grid-cols-2 gap-2 pt-1">
+              <div>
+                <label class="text-xs text-slate-400">Ширина окна</label>
+                <input id="cfg-width" type="number" class="w-full mt-1 bg-[#0b1218] border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white" />
+              </div>
+              <div>
+                <label class="text-xs text-slate-400">Высота окна</label>
+                <input id="cfg-height" type="number" class="w-full mt-1 bg-[#0b1218] border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white" />
+              </div>
+            </div>
+          </div>
+
+          <div class="glass-card p-4 rounded-xl space-y-3 col-span-2">
+            <h3 class="text-sm font-bold text-emerald-400">Среда выполнения Java (Java 21+) и Аргументы JVM</h3>
+            <div>
+              <label class="text-xs text-slate-400">Путь к Java 21 или выше (оставьте пустым для авто-загрузки с сервера)</label>
+              <div class="flex space-x-2 mt-1">
+                <input id="cfg-java" type="text" placeholder="Автоматически (Java 21 Adoptium)" class="flex-1 bg-[#0b1218] border border-white/10 rounded-lg px-3 py-2 text-sm text-white" />
+                <button id="btn-browse-java" class="bg-slate-800 hover:bg-slate-700 px-4 rounded-lg text-xs font-medium">Обзор...</button>
+              </div>
+            </div>
+            <div>
+              <label class="text-xs text-slate-400">Пользовательские аргументы JVM</label>
+              <input id="cfg-args" type="text" class="w-full mt-1 bg-[#0b1218] border border-white/10 rounded-lg px-3 py-2 text-sm text-white font-mono" />
+            </div>
+            <div class="flex items-center space-x-6 pt-2">
+              <label class="flex items-center space-x-2 text-sm cursor-pointer">
+                <input id="cfg-console" type="checkbox" class="accent-emerald-500 w-4 h-4" />
+                <span>Включить консоль лаунчера</span>
+              </label>
+              <label class="flex items-center space-x-2 text-sm cursor-pointer">
+                <input id="cfg-debug" type="checkbox" class="accent-emerald-500 w-4 h-4" />
+                <span>Режим отладки (Debug лог)</span>
+              </label>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="tab-faq" class="hidden space-y-4">
+        <h2 class="text-xl font-bold text-white">FAQ и Стандартные правила FenixCraft</h2>
+        <div class="glass-card p-4 rounded-xl space-y-2">
+          <h3 class="text-emerald-400 font-bold text-sm">1. Общие правила поведения</h3>
+          <p class="text-xs text-slate-300 leading-relaxed">
+            Запрещено использование стороннего ПО, чит-клиентов, X-Ray текстурпаков и модификаций, дающих нечестное преимущество. Лаунчер автоматически проверяет целостность папки <code>mods</code> по контрольной сумме SHA-256 перед каждым запуском.
+          </p>
+        </div>
+        <div class="glass-card p-4 rounded-xl space-y-2">
+          <h3 class="text-emerald-400 font-bold text-sm">2. Часто задаваемые вопросы (FAQ)</h3>
+          <ul class="text-xs text-slate-300 space-y-1.5 list-disc pl-4">
+            <li><b>Какая версия Java нужна?</b> Лаунчер использует Java 21 и выше. Если она не установлена, лаунчер скачает её с сервера автоматически.</li>
+            <li><b>Как зайти на сервер?</b> Просто нажмите «Играть» — лаунчер сам подключит вас к выбранному серверу в правой панели (по умолчанию <code>play.fenixcraft.ru</code>).</li>
+            <li><b>Сколько памяти выделить для сборки с модами?</b> Рекомендуется от 4096 МБ до 8192 МБ в разделе «Настройки».</li>
+          </ul>
+        </div>
+      </div>
+
+      <div id="tab-console" class="hidden space-y-3">
+        <div class="flex justify-between items-center">
+          <h2 class="text-lg font-bold text-white">Консоль лаунчера и Debug-монитор</h2>
+          <button onclick="document.getElementById('console-output').innerHTML = ''" class="text-xs text-slate-400 hover:text-white">Очистить</button>
+        </div>
+        <pre id="console-output" class="glass-card p-4 rounded-xl h-96 overflow-y-auto text-xs font-mono text-emerald-300 whitespace-pre-wrap"></pre>
+      </div>
+    </main>
+
+    <aside class="w-72 bg-[#0a1015] border-l border-white/5 p-4 flex flex-col justify-between shrink-0">
+      <div class="space-y-4">
+        <div class="flex items-center justify-between">
+          <h3 class="text-sm font-bold text-white">Мои серверы</h3>
+          <button id="btn-ping-servers" class="text-xs text-emerald-400 hover:underline">Обновить →</button>
+        </div>
+        <div id="servers-list" class="space-y-2.5"></div>
+        <div class="pt-2">
+          <h4 class="text-xs font-semibold text-slate-400 mb-2">Последний запуск</h4>
+          <div class="glass-card p-3 rounded-xl flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+              <div class="w-10 h-10 rounded-lg bg-emerald-500/20 flex items-center justify-center">🌍</div>
+              <div>
+                <div id="last-launch-ver" class="text-sm font-bold text-white">1.21.8</div>
+                <div class="text-[11px] text-slate-400">Готов к запуску</div>
+              </div>
+            </div>
+            <button onclick="document.getElementById('btn-play').click()" class="w-8 h-8 rounded-lg bg-white/5 hover:bg-emerald-500 hover:text-slate-950 flex items-center justify-center transition">▶</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="glass-card p-4 rounded-xl relative">
+        <p class="text-xs italic text-slate-400">«В каждом кубике скрывается целый мир...»</p>
+        <div class="text-right text-emerald-400 text-lg mt-1">👾</div>
+      </div>
+    </aside>
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>
