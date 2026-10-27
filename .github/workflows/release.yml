@@ -38,8 +38,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: v2.5.0
-          releaseName: 'FenixCraft Launcher v2.5.0 (Ultra-Light)'
+          tagName: v2.6.0
+          releaseName: 'FenixCraft Launcher v2.6.0 (Ultra-Light)'
           releaseBody: 'Готовые сборки лаунчера FenixCraft под Windows (.exe/.msi), Linux (.AppImage/.deb) и macOS (.dmg).'
           releaseDraft: false
           prerelease: false

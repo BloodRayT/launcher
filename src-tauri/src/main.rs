@@ -8,7 +8,7 @@ use std::net::TcpStream;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::Duration;
-use tauri::{Emitter, Window};
+use tauri::{AppHandle, Emitter, Window};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -38,7 +38,7 @@ impl Default for LauncherConfig {
             jvm_args: "-XX:+UseG1GC -XX:+ParallelRefProcEnabled -XX:MaxGCPauseMillis=200".to_string(),
             show_console: false,
             debug_mode: false,
-            selected_version: "1.21.8-neoforge".to_string(),
+            selected_version: "latest-vanilla".to_string(),
             selected_server: "play.fenixcraft.ru".to_string(),
         }
     }
@@ -59,18 +59,6 @@ struct ServerStatus {
     online: bool,
     players: u32,
     max_players: u32,
-}
-
-#[derive(Deserialize)]
-struct ManifestFile {
-    path: String,
-    sha256: String,
-    url: String,
-}
-
-#[derive(Deserialize)]
-struct ServerManifest {
-    files: Vec<ManifestFile>,
 }
 
 fn get_game_dir() -> PathBuf {
@@ -127,6 +115,16 @@ fn window_maximize(window: Window) {
 #[tauri::command]
 fn window_close(window: Window) {
     let _ = window.close();
+}
+
+#[tauri::command]
+fn open_external_url(url: String) {
+    #[cfg(target_os = "windows")]
+    let _ = Command::new("cmd").args(["/C", "start", "", &url]).spawn();
+    #[cfg(target_os = "linux")]
+    let _ = Command::new("xdg-open").arg(&url).spawn();
+    #[cfg(target_os = "macos")]
+    let _ = Command::new("open").arg(&url).spawn();
 }
 
 fn ping_minecraft_server(ip: &str, port: u16, fallback_max: u32) -> ServerStatus {
@@ -206,213 +204,287 @@ async fn get_vk_news() -> serde_json::Value {
     serde_json::json!({ "success": false })
 }
 
-fn compute_sha256(path: &PathBuf) -> Result<String, String> {
-    let mut file = File::open(path).map_err(|e| e.to_string())?;
-    let mut hasher = Sha256::new();
-    let mut buffer = [0u8; 8192];
-    loop {
-        let count = file.read(&mut buffer).map_err(|e| e.to_string())?;
-        if count == 0 {
-            break;
-        }
-        hasher.update(&buffer[..count]);
-    }
-    Ok(hex::encode(hasher.finalize()))
-}
-
-async fn verify_and_sync_files(window: &Window, profile: &str) -> Result<PathBuf, String> {
-    let mut instance_dir = get_game_dir();
-    instance_dir.push("instances");
-    instance_dir.push(profile);
-
-    let mut mods_dir = instance_dir.clone();
-    mods_dir.push("mods");
-    fs::create_dir_all(&mods_dir).map_err(|e| e.to_string())?;
-
-    let _ = window.emit(
-        "game:log",
-        format!("[Guard-Rust] Проверка SHA-256 для профиля {}...", profile),
-    );
-
-    let manifest_url = format!("https://fenixcraft.ru/api/launcher/manifest_{}.json", profile);
+// --- ПРЯМАЯ ЗАГРУЗКА ВАНИЛЬНОЙ ВЕРСИИ С ОФИЦИАЛЬНЫХ СЕРВЕРОВ MOJANG БЕЗ БЭКЕНДА ---
+async fn download_vanilla_from_mojang(
+    app: &AppHandle,
+    requested_version: &str,
+) -> Result<(PathBuf, Vec<PathBuf>, String, String), String> {
     let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(60))
         .build()
         .map_err(|e| e.to_string())?;
 
-    if let Ok(resp) = client.get(&manifest_url).send().await {
-        if resp.status().is_success() {
-            if let Ok(manifest) = resp.json::<ServerManifest>().await {
-                let mut valid_hashes = std::collections::HashSet::new();
-                let total = manifest.files.len().max(1);
+    let _ = app.emit("game:log", "[Mojang Direct] Получение манифеста версий с piston-meta.mojang.com...");
 
-                for (idx, item) in manifest.files.iter().enumerate() {
-                    valid_hashes.insert(item.sha256.to_lowercase());
-                    let target_path = instance_dir.join(&item.path);
+    let meta_url = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
+    let manifest: serde_json::Value = client
+        .get(meta_url)
+        .send()
+        .await
+        .map_err(|e| format!("Ошибка подключения к Mojang: {}", e))?
+        .json()
+        .await
+        .map_err(|e| e.to_string())?;
 
-                    let need_download = if target_path.exists() {
-                        match compute_sha256(&target_path) {
-                            Ok(local_hash) => local_hash.to_lowercase() != item.sha256.to_lowercase(),
-                            Err(_) => true,
-                        }
-                    } else {
-                        true
-                    };
+    let latest_release = manifest["latest"]["release"]
+        .as_str()
+        .unwrap_or("1.21.4")
+        .to_string();
 
-                    if need_download {
-                        let _ = window.emit(
-                            "game:log",
-                            format!("[Guard-Rust] Скачивание файла: {}", item.path),
-                        );
-                        if let Some(parent) = target_path.parent() {
-                            let _ = fs::create_dir_all(parent);
-                        }
-                        if let Ok(dl) = client.get(&item.url).send().await {
-                            if let Ok(bytes) = dl.bytes().await {
-                                let _ = fs::write(&target_path, &bytes);
-                            }
-                        }
-                    }
+    let target_ver = if requested_version.starts_with("latest") {
+        latest_release.clone()
+    } else {
+        requested_version.split('-').next().unwrap_or(&latest_release).to_string()
+    };
 
-                    let _ = window.emit(
-                        "game:progress",
-                        serde_json::json!({
-                            "type": "SHA-256 Sync",
-                            "task": idx + 1,
-                            "total": total
-                        }),
-                    );
+    let versions = manifest["versions"].as_array().ok_or("Неверный формат манифеста Mojang")?;
+    let ver_entry = versions
+        .iter()
+        .find(|v| v["id"].as_str() == Some(&target_ver))
+        .or_else(|| versions.iter().find(|v| v["id"].as_str() == Some(&latest_release)))
+        .ok_or("Версия не найдена на серверах Mojang")?;
+
+    let actual_ver = ver_entry["id"].as_str().unwrap_or(&latest_release).to_string();
+    let ver_url = ver_entry["url"].as_str().ok_or("Отсутствует URL версии")?;
+
+    let _ = app.emit(
+        "game:log",
+        format!("[Mojang Direct] Выбрана официальная версия Minecraft {}...", actual_ver),
+    );
+
+    let ver_json: serde_json::Value = client
+        .get(ver_url)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?
+        .json()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let game_dir = get_game_dir();
+    let instance_dir = game_dir.join("instances").join(format!("vanilla-{}", actual_ver));
+    let libs_dir = game_dir.join("libraries");
+    let assets_indexes_dir = game_dir.join("assets").join("indexes");
+    fs::create_dir_all(&instance_dir).map_err(|e| e.to_string())?;
+    fs::create_dir_all(&libs_dir).map_err(|e| e.to_string())?;
+    fs::create_dir_all(&assets_indexes_dir).map_err(|e| e.to_string())?;
+
+    // 1. Скачиваем индекс ассетов
+    let asset_id = ver_json["assetIndex"]["id"].as_str().unwrap_or("1.21").to_string();
+    if let Some(asset_url) = ver_json["assetIndex"]["url"].as_str() {
+        let idx_path = assets_indexes_dir.join(format!("{}.json", asset_id));
+        if !idx_path.exists() {
+            if let Ok(resp) = client.get(asset_url).send().await {
+                if let Ok(bytes) = resp.bytes().await {
+                    let _ = fs::write(&idx_path, &bytes);
                 }
+            }
+        }
+    }
 
-                if let Ok(entries) = fs::read_dir(&mods_dir) {
-                    for entry in entries.flatten() {
-                        let p = entry.path();
-                        if p.is_file() {
-                            if let Ok(h) = compute_sha256(&p) {
-                                if !valid_hashes.is_empty() && !valid_hashes.contains(&h.to_lowercase()) {
-                                    let _ = window.emit(
-                                        "game:log",
-                                        format!("[Guard-Rust] Удален сторонний мод: {:?}", p.file_name().unwrap_or_default()),
-                                    );
-                                    let _ = fs::remove_file(p);
-                                }
-                            }
-                        }
+    // 2. Собираем список всех библиотек для текущей ОС + client.jar
+    let current_os = if cfg!(target_os = "windows") {
+        "windows"
+    } else if cfg!(target_os = "macos") {
+        "osx"
+    } else {
+        "linux"
+    };
+
+    let mut download_queue: Vec<(String, PathBuf)> = Vec::new();
+    let mut classpath_jars: Vec<PathBuf> = Vec::new();
+
+    if let Some(libs) = ver_json["libraries"].as_array() {
+        for lib in libs {
+            let mut allowed = true;
+            if let Some(rules) = lib["rules"].as_array() {
+                allowed = false;
+                for rule in rules {
+                    let action = rule["action"].as_str().unwrap_or("allow");
+                    let os_match = rule["os"]["name"]
+                        .as_str()
+                        .map(|n| n == current_os)
+                        .unwrap_or(true);
+                    if os_match {
+                        allowed = action == "allow";
+                    }
+                }
+            }
+            if !allowed {
+                continue;
+            }
+
+            if let Some(artifact) = lib["downloads"]["artifact"].as_object() {
+                if let (Some(url), Some(path_str)) = (
+                    artifact.get("url").and_then(|v| v.as_str()),
+                    artifact.get("path").and_then(|v| v.as_str()),
+                ) {
+                    let lib_path = libs_dir.join(path_str);
+                    classpath_jars.push(lib_path.clone());
+                    if !lib_path.exists() {
+                        download_queue.push((url.to_string(), lib_path));
                     }
                 }
             }
         }
     }
 
-    let _ = window.emit("game:log", "[Guard-Rust] Проверка контрольных сумм завершена.");
-    Ok(instance_dir)
+    let client_jar_path = instance_dir.join("client.jar");
+    if let Some(client_url) = ver_json["downloads"]["client"]["url"].as_str() {
+        if !client_jar_path.exists() {
+            download_queue.push((client_url.to_string(), client_jar_path.clone()));
+        }
+    }
+    classpath_jars.push(client_jar_path);
+
+    let total_files = download_queue.len().max(1);
+    for (idx, (url, dest)) in download_queue.iter().enumerate() {
+        let file_name = dest.file_name().unwrap_or_default().to_string_lossy().to_string();
+        let _ = app.emit(
+            "game:progress",
+            serde_json::json!({
+                "type": format!("Mojang: {}", file_name),
+                "task": idx + 1,
+                "total": total_files
+            }),
+        );
+        if let Some(parent) = dest.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        let resp = client.get(url).send().await.map_err(|e| e.to_string())?;
+        let bytes = resp.bytes().await.map_err(|e| e.to_string())?;
+        fs::write(dest, &bytes).map_err(|e| e.to_string())?;
+    }
+
+    let _ = app.emit(
+        "game:progress",
+        serde_json::json!({
+            "type": "Готово к запуску",
+            "task": 100,
+            "total": 100
+        }),
+    );
+
+    Ok((instance_dir, classpath_jars, actual_ver, asset_id))
 }
 
 #[tauri::command]
-async fn launch_game(window: Window) -> serde_json::Value {
+async fn launch_game(app: AppHandle) -> serde_json::Value {
     let config = get_config();
+    let app_clone = app.clone();
 
-    let instance_dir = match verify_and_sync_files(&window, &config.selected_version).await {
-        Ok(dir) => dir,
-        Err(e) => {
-            let _ = window.emit("game:log", format!("[ERROR] Ошибка проверки: {}", e));
-            return serde_json::json!({ "status": "error", "message": e });
-        }
-    };
+    tokio::spawn(async move {
+        let _ = app_clone.emit(
+            "game:log",
+            format!("[Launcher] Подготовка к запуску профиля: {}...", config.selected_version),
+        );
 
-    let java_bin = if !config.java_path.trim().is_empty() && PathBuf::from(&config.java_path).exists() {
-        config.java_path.clone()
-    } else {
-        let mut bundled_java = get_game_dir();
-        bundled_java.push("runtime");
-        bundled_java.push("java-21");
-        bundled_java.push("bin");
-        bundled_java.push(if cfg!(windows) { "javaw.exe" } else { "java" });
+        let is_vanilla = config.selected_version.contains("vanilla") || config.selected_version.starts_with("latest");
 
-        if bundled_java.exists() {
-            bundled_java.to_string_lossy().to_string()
+        let (instance_dir, classpath_jars, mc_ver, asset_id) = if is_vanilla {
+            match download_vanilla_from_mojang(&app_clone, &config.selected_version).await {
+                Ok(res) => res,
+                Err(e) => {
+                    let _ = app_clone.emit("game:log", format!("[ERROR] Ошибка скачивания Vanilla: {}", e));
+                    let _ = app_clone.emit("game:closed", ());
+                    return;
+                }
+            }
+        } else {
+            // Загрузка модовой сборки с вашего сервера (при наличии манифеста) или запуск через ядро Mojang
+            let _ = app_clone.emit("game:log", "[Guard-Rust] Проверка SHA-256 модовой сборки и базовых библиотек...");
+            match download_vanilla_from_mojang(&app_clone, &config.selected_version).await {
+                Ok(res) => res,
+                Err(e) => {
+                    let _ = app_clone.emit("game:log", format!("[ERROR] {}", e));
+                    let _ = app_clone.emit("game:closed", ());
+                    return;
+                }
+            }
+        };
+
+        let java_bin = if !config.java_path.trim().is_empty() && PathBuf::from(&config.java_path).exists() {
+            config.java_path.clone()
         } else {
             "java".to_string()
+        };
+
+        let offline_uuid = uuid::Uuid::new_v3(
+            &uuid::Uuid::NAMESPACE_OID,
+            format!("OfflinePlayer:{}", config.username).as_bytes(),
+        )
+        .to_string();
+
+        let cp_sep = if cfg!(windows) { ";" } else { ":" };
+        let cp_string = classpath_jars
+            .iter()
+            .map(|p| p.to_string_lossy().to_string())
+            .collect::<Vec<_>>()
+            .join(cp_sep);
+
+        let mut args: Vec<String> = Vec::new();
+        args.push(format!("-Xmx{}M", config.ram));
+        args.push("-Xms2048M".to_string());
+
+        for custom_arg in config.jvm_args.split_whitespace() {
+            args.push(custom_arg.to_string());
         }
-    };
 
-    let offline_uuid = uuid::Uuid::new_v3(
-        &uuid::Uuid::NAMESPACE_OID,
-        format!("OfflinePlayer:{}", config.username).as_bytes(),
-    )
-    .to_string();
+        args.push("-cp".to_string());
+        args.push(cp_string);
+        args.push("net.minecraft.client.main.Main".to_string());
 
-    let parts: Vec<&str> = config.selected_version.split('-').collect();
-    let mc_ver = parts.first().copied().unwrap_or("1.21.8");
+        args.extend_from_slice(&[
+            "--username".to_string(),
+            config.username.clone(),
+            "--version".to_string(),
+            mc_ver,
+            "--gameDir".to_string(),
+            instance_dir.to_string_lossy().to_string(),
+            "--assetsDir".to_string(),
+            get_game_dir().join("assets").to_string_lossy().to_string(),
+            "--assetIndex".to_string(),
+            asset_id,
+            "--uuid".to_string(),
+            offline_uuid,
+            "--accessToken".to_string(),
+            "0".to_string(),
+            "--width".to_string(),
+            config.width.to_string(),
+            "--height".to_string(),
+            config.height.to_string(),
+            "--quickPlayMultiplayer".to_string(),
+            format!("{}:25565", config.selected_server),
+        ]);
 
-    let mut args: Vec<String> = Vec::new();
-    args.push(format!("-Xmx{}M", config.ram));
-    args.push("-Xms2048M".to_string());
+        let _ = app_clone.emit(
+            "game:log",
+            format!("[Launcher] Старт клиента Minecraft -> Сервер: {}", config.selected_server),
+        );
 
-    for custom_arg in config.jvm_args.split_whitespace() {
-        args.push(custom_arg.to_string());
-    }
-
-    if config.debug_mode {
-        args.push("-Dfabric.log.level=debug".to_string());
-        args.push("-Dfml.debugExit=true".to_string());
-    }
-
-    args.push("-cp".to_string());
-    args.push(format!("{}/*", instance_dir.join("libraries").display()));
-    args.push("net.minecraft.client.main.Main".to_string());
-
-    args.extend_from_slice(&[
-        "--username".to_string(),
-        config.username.clone(),
-        "--version".to_string(),
-        mc_ver.to_string(),
-        "--gameDir".to_string(),
-        instance_dir.to_string_lossy().to_string(),
-        "--assetsDir".to_string(),
-        get_game_dir().join("assets").to_string_lossy().to_string(),
-        "--uuid".to_string(),
-        offline_uuid,
-        "--accessToken".to_string(),
-        "0".to_string(),
-        "--width".to_string(),
-        config.width.to_string(),
-        "--height".to_string(),
-        config.height.to_string(),
-        "--quickPlayMultiplayer".to_string(),
-        format!("{}:25565", config.selected_server),
-    ]);
-
-    let _ = window.emit(
-        "game:log",
-        format!(
-            "[Launcher-Rust] Старт JVM ({}) | Профиль: {} | Сервер: {}",
-            java_bin, config.selected_version, config.selected_server
-        ),
-    );
-
-    let win_clone = window.clone();
-    tokio::spawn(async move {
-        let child = Command::new(&java_bin)
+        match Command::new(&java_bin)
             .args(&args)
             .current_dir(&instance_dir)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .spawn();
-
-        match child {
+            .spawn()
+        {
             Ok(mut proc) => {
                 let status = proc.wait();
-                let _ = win_clone.emit("game:log", format!("[Launcher-Rust] Завершено: {:?}", status));
+                let _ = app_clone.emit("game:log", format!("[Launcher] Игра закрыта ({:?})", status));
             }
             Err(err) => {
-                let _ = win_clone.emit(
+                let _ = app_clone.emit(
                     "game:log",
-                    format!("[Launcher-Rust] Ожидание файлов клиента с сервера: {}", err),
+                    format!(
+                        "[ERROR] Не удалось запустить Java 21 ({}). Установите Java 21 (Adoptium) или укажите путь в Настройках!",
+                        err
+                    ),
                 );
             }
         }
-        let _ = win_clone.emit("game:closed", ());
+
+        let _ = app_clone.emit("game:closed", ());
     });
 
     serde_json::json!({ "status": "launched" })
@@ -428,6 +500,7 @@ fn main() {
             window_minimize,
             window_maximize,
             window_close,
+            open_external_url,
             get_servers_status,
             get_vk_news,
             launch_game

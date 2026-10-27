@@ -52,16 +52,17 @@
   </header>
 
   <div class="flex flex-1 overflow-hidden">
+    <!-- ЛЕВОЕ МЕНЮ -->
     <aside class="w-56 bg-[#0a1015] border-r border-white/5 flex flex-col justify-between p-3 shrink-0">
       <nav class="space-y-1.5 mt-2">
         <button data-tab="home" class="nav-btn active-nav w-full flex items-center space-x-3 px-4 py-2.5 rounded-r-lg text-sm font-medium transition">
           <span class="text-emerald-400">🏠</span> <span>Главная</span>
         </button>
-        <button data-tab="home" class="nav-btn w-full flex items-center space-x-3 px-4 py-2.5 rounded-r-lg text-sm font-medium text-slate-400 hover:text-white transition">
+        <button data-tab="play-now" class="nav-btn w-full flex items-center space-x-3 px-4 py-2.5 rounded-r-lg text-sm font-medium text-slate-400 hover:text-white transition">
           <span>▶️</span> <span>Играть</span>
         </button>
-        <button data-tab="mods" class="nav-btn w-full flex items-center space-x-3 px-4 py-2.5 rounded-r-lg text-sm font-medium text-slate-400 hover:text-white transition">
-          <span>🧩</span> <span>Моды</span>
+        <button data-tab="shop" class="nav-btn w-full flex items-center space-x-3 px-4 py-2.5 rounded-r-lg text-sm font-medium text-slate-400 hover:text-white transition">
+          <span>💎</span> <span>Магазин</span>
         </button>
         <button data-tab="faq" class="nav-btn w-full flex items-center space-x-3 px-4 py-2.5 rounded-r-lg text-sm font-medium text-slate-400 hover:text-white transition">
           <span>📦</span> <span>FAQ и Правила</span>
@@ -86,7 +87,10 @@
       </div>
     </aside>
 
+    <!-- ЦЕНТРАЛЬНАЯ ОБЛАСТЬ -->
     <main class="flex-1 overflow-y-auto p-5 space-y-5 bg-[#080d11]">
+
+      <!-- ВКЛАДКА: ГЛАВНАЯ -->
       <div id="tab-home" class="space-y-5">
         <div class="relative rounded-2xl overflow-hidden h-64 border border-white/10 flex flex-col justify-end p-7 bg-cover bg-center"
              style="background-image: linear-gradient(90deg, rgba(8,13,17,0.92) 0%, rgba(8,13,17,0.4) 60%, rgba(8,13,17,0.1) 100%), url('https://images.unsplash.com/photo-1607513746994-51f730a44832?w=1200&q=80');">
@@ -94,7 +98,7 @@
             <div class="text-xs uppercase tracking-widest text-emerald-400 font-bold">FenixCraft Official</div>
             <h1 class="text-3xl font-extrabold text-white tracking-tight">MINECRAFT <span class="text-sm font-normal block text-slate-300">JAVA EDITION</span></h1>
             <p class="text-base font-semibold text-white pt-1">Исследуй. Строй. Выживай.</p>
-            <p class="text-xs text-slate-300 pb-2">Твой мир. Твои правила. Авто-вход на выбранный сервер.</p>
+            <p class="text-xs text-slate-300 pb-2">Прямое скачивание самой свежей Vanilla с серверов Mojang без бэкенда!</p>
 
             <div class="flex items-center space-x-3 pt-1">
               <button id="btn-play" class="bg-emerald-500 hover:bg-emerald-400 active:scale-95 transition text-slate-950 font-bold px-8 py-3 rounded-xl flex items-center space-x-2 shadow-lg shadow-emerald-500/25">
@@ -102,11 +106,12 @@
               </button>
 
               <select id="select-version" class="bg-[#111921]/90 border border-white/15 text-white text-sm rounded-xl px-4 py-3 focus:outline-none focus:border-emerald-500">
+                <option value="latest-vanilla">Latest Vanilla (Авто-загрузка)</option>
+                <option value="1.21.8-vanilla">1.21.8 (Vanilla)</option>
+                <option value="1.21.4-vanilla">1.21.4 (Vanilla)</option>
+                <option value="1.21.1-vanilla">1.21.1 (Vanilla)</option>
                 <option value="1.21.8-neoforge">1.21.8 (NeoForge)</option>
                 <option value="1.21.8-fabric">1.21.8 (Fabric + Iris)</option>
-                <option value="1.21.8-vanilla">1.21.8 (Vanilla)</option>
-                <option value="1.21.1-neoforge">1.21.1 (NeoForge)</option>
-                <option value="1.21.1-fabric">1.21.1 (Fabric + Iris)</option>
                 <option value="26.3-neoforge">26.3 (Fenix Pack)</option>
               </select>
 
@@ -117,7 +122,7 @@
 
         <div id="progress-container" class="hidden glass-card p-3 rounded-xl">
           <div class="flex justify-between text-xs text-slate-300 mb-1">
-            <span id="progress-status">Проверка контрольных сумм SHA-256...</span>
+            <span id="progress-status">Подключение к серверам Mojang...</span>
             <span id="progress-percent">0%</span>
           </div>
           <div class="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
@@ -126,23 +131,23 @@
         </div>
 
         <div class="grid grid-cols-4 gap-4">
-          <div class="glass-card rounded-xl p-3.5 hover:border-emerald-500/40 transition cursor-pointer">
+          <div onclick="document.getElementById('select-version').value='latest-vanilla'; document.getElementById('select-version').dispatchEvent(new Event('change'));" class="glass-card rounded-xl p-3.5 hover:border-emerald-500/40 transition cursor-pointer">
             <div class="text-emerald-400 text-lg mb-1">🌱</div>
-            <div class="text-sm font-bold text-white">Последняя версия</div>
-            <div class="text-xs text-emerald-400 mt-0.5">1.21.8 — 26.3 →</div>
+            <div class="text-sm font-bold text-white">Последняя Vanilla</div>
+            <div class="text-xs text-emerald-400 mt-0.5">Скачать без бэкенда →</div>
           </div>
-          <div onclick="switchTab('mods')" class="glass-card rounded-xl p-3.5 hover:border-purple-500/40 transition cursor-pointer">
-            <div class="text-purple-400 text-lg mb-1">🧩</div>
-            <div class="text-sm font-bold text-white">Моды</div>
-            <div class="text-xs text-slate-400 mt-0.5">NeoForge / Fabric →</div>
+          <div onclick="switchTab('shop')" class="glass-card rounded-xl p-3.5 hover:border-amber-500/40 transition cursor-pointer">
+            <div class="text-amber-400 text-lg mb-1">💎</div>
+            <div class="text-sm font-bold text-white">Магазин доната</div>
+            <div class="text-xs text-slate-400 mt-0.5">VIP, Creative, Admin →</div>
           </div>
           <div onclick="switchTab('faq')" class="glass-card rounded-xl p-3.5 hover:border-cyan-500/40 transition cursor-pointer">
             <div class="text-cyan-400 text-lg mb-1">📘</div>
             <div class="text-sm font-bold text-white">FAQ и Правила</div>
             <div class="text-xs text-slate-400 mt-0.5">Свод правил сервера →</div>
           </div>
-          <div onclick="switchTab('servers')" class="glass-card rounded-xl p-3.5 hover:border-amber-500/40 transition cursor-pointer">
-            <div class="text-amber-400 text-lg mb-1">🖧</div>
+          <div onclick="switchTab('servers')" class="glass-card rounded-xl p-3.5 hover:border-purple-500/40 transition cursor-pointer">
+            <div class="text-purple-400 text-lg mb-1">🖧</div>
             <div class="text-sm font-bold text-white">Серверы</div>
             <div class="text-xs text-slate-400 mt-0.5">play.fenixcraft.ru →</div>
           </div>
@@ -160,6 +165,31 @@
         </div>
       </div>
 
+      <!-- ВКЛАДКА: МАГАЗИН ПРИВИЛЕГИЙ (VIP, CREATIVE, MODER, ADMIN, MONEY) -->
+      <div id="tab-shop" class="hidden space-y-5">
+        <div class="flex items-center justify-between">
+          <div>
+            <h2 class="text-xl font-bold text-white">Магазин привилегий и валюты FenixCraft</h2>
+            <p class="text-xs text-slate-400 mt-0.5">Выберите привилегию — выдача происходит автоматически на ваш никнейм после оплаты.</p>
+          </div>
+          <button onclick="window.fenixAPI.openUrl('https://fenixcraft.trademc.org/')" class="bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 hover:bg-emerald-500 hover:text-slate-950 font-semibold text-xs px-4 py-2 rounded-xl transition">
+            Открыть сайт магазина ↗
+          </button>
+        </div>
+
+        <div id="shop-grid" class="grid grid-cols-3 gap-4">
+          <!-- Карточки привилегий рендерятся из renderer.js -->
+        </div>
+      </div>
+
+      <!-- ВКЛАДКА: СЕРВЕРЫ -->
+      <div id="tab-servers" class="hidden space-y-4">
+        <h2 class="text-xl font-bold text-white">Список серверов FenixCraft</h2>
+        <p class="text-xs text-slate-400">Нажмите на любой сервер, чтобы сделать его основным для автоматического подключения при нажатии «Играть».</p>
+        <div id="servers-full-list" class="grid grid-cols-2 gap-4"></div>
+      </div>
+
+      <!-- ВКЛАДКА: НАСТРОЙКИ -->
       <div id="tab-settings" class="hidden space-y-5">
         <h2 class="text-xl font-bold text-white">Настройки лаунчера и игры</h2>
         <p class="text-xs text-slate-400">Все изменения автоматически применяются и сохраняются в реальном времени.</p>
@@ -168,7 +198,7 @@
           <div class="glass-card p-4 rounded-xl space-y-3">
             <h3 class="text-sm font-bold text-emerald-400">Авторизация</h3>
             <div>
-              <label class="text-xs text-slate-400">Никнейм (для пиратки)</label>
+              <label class="text-xs text-slate-400">Никнейм (на него также выдается донат в магазине)</label>
               <input id="cfg-username" type="text" class="w-full mt-1 bg-[#0b1218] border border-white/10 rounded-lg px-3 py-2 text-sm text-white" />
             </div>
             <div>
@@ -204,9 +234,9 @@
           <div class="glass-card p-4 rounded-xl space-y-3 col-span-2">
             <h3 class="text-sm font-bold text-emerald-400">Среда выполнения Java (Java 21+) и Аргументы JVM</h3>
             <div>
-              <label class="text-xs text-slate-400">Путь к Java 21 или выше (оставьте пустым для авто-загрузки с сервера)</label>
+              <label class="text-xs text-slate-400">Путь к Java 21 или выше</label>
               <div class="flex space-x-2 mt-1">
-                <input id="cfg-java" type="text" placeholder="Автоматически (Java 21 Adoptium)" class="flex-1 bg-[#0b1218] border border-white/10 rounded-lg px-3 py-2 text-sm text-white" />
+                <input id="cfg-java" type="text" placeholder="Системная Java 21 (или выберите javaw.exe)" class="flex-1 bg-[#0b1218] border border-white/10 rounded-lg px-3 py-2 text-sm text-white" />
                 <button id="btn-browse-java" class="bg-slate-800 hover:bg-slate-700 px-4 rounded-lg text-xs font-medium">Обзор...</button>
               </div>
             </div>
@@ -217,7 +247,7 @@
             <div class="flex items-center space-x-6 pt-2">
               <label class="flex items-center space-x-2 text-sm cursor-pointer">
                 <input id="cfg-console" type="checkbox" class="accent-emerald-500 w-4 h-4" />
-                <span>Включить консоль лаунчера</span>
+                <span>Включить консоль лаунчера при старте</span>
               </label>
               <label class="flex items-center space-x-2 text-sm cursor-pointer">
                 <input id="cfg-debug" type="checkbox" class="accent-emerald-500 w-4 h-4" />
@@ -228,24 +258,25 @@
         </div>
       </div>
 
+      <!-- ВКЛАДКА: FAQ И ПРАВИЛА -->
       <div id="tab-faq" class="hidden space-y-4">
         <h2 class="text-xl font-bold text-white">FAQ и Стандартные правила FenixCraft</h2>
         <div class="glass-card p-4 rounded-xl space-y-2">
           <h3 class="text-emerald-400 font-bold text-sm">1. Общие правила поведения</h3>
           <p class="text-xs text-slate-300 leading-relaxed">
-            Запрещено использование стороннего ПО, чит-клиентов, X-Ray текстурпаков и модификаций, дающих нечестное преимущество. Лаунчер автоматически проверяет целостность папки <code>mods</code> по контрольной сумме SHA-256 перед каждым запуском.
+            Запрещено использование стороннего ПО, чит-клиентов, X-Ray текстурпаков и модификаций, дающих нечестное преимущество. Лаунчер автоматически проверяет целостность клиента перед каждым запуском.
           </p>
         </div>
         <div class="glass-card p-4 rounded-xl space-y-2">
           <h3 class="text-emerald-400 font-bold text-sm">2. Часто задаваемые вопросы (FAQ)</h3>
           <ul class="text-xs text-slate-300 space-y-1.5 list-disc pl-4">
-            <li><b>Какая версия Java нужна?</b> Лаунчер использует Java 21 и выше. Если она не установлена, лаунчер скачает её с сервера автоматически.</li>
-            <li><b>Как зайти на сервер?</b> Просто нажмите «Играть» — лаунчер сам подключит вас к выбранному серверу в правой панели (по умолчанию <code>play.fenixcraft.ru</code>).</li>
-            <li><b>Сколько памяти выделить для сборки с модами?</b> Рекомендуется от 4096 МБ до 8192 МБ в разделе «Настройки».</li>
+            <li><b>Как скачать чистую Vanilla без бэкенда?</b> Выберите в списке версий <code>Latest Vanilla (Авто-загрузка)</code> и нажмите «Играть». Лаунчер сам скачает последнюю официальную версию напрямую с серверов Mojang.</li>
+            <li><b>Как купить VIP, Creative, Moder, Admin или Money?</b> Перейдите во вкладку «Магазин» в левом меню и нажмите «Купить» на нужной привилегии.</li>
           </ul>
         </div>
       </div>
 
+      <!-- ВКЛАДКА: КОНСОЛЬ ОТЛАДКИ -->
       <div id="tab-console" class="hidden space-y-3">
         <div class="flex justify-between items-center">
           <h2 class="text-lg font-bold text-white">Консоль лаунчера и Debug-монитор</h2>
@@ -255,6 +286,7 @@
       </div>
     </main>
 
+    <!-- ПРАВЫЙ САЙДБАР -->
     <aside class="w-72 bg-[#0a1015] border-l border-white/5 p-4 flex flex-col justify-between shrink-0">
       <div class="space-y-4">
         <div class="flex items-center justify-between">
@@ -268,7 +300,7 @@
             <div class="flex items-center space-x-3">
               <div class="w-10 h-10 rounded-lg bg-emerald-500/20 flex items-center justify-center">🌍</div>
               <div>
-                <div id="last-launch-ver" class="text-sm font-bold text-white">1.21.8</div>
+                <div id="last-launch-ver" class="text-sm font-bold text-white">Latest</div>
                 <div class="text-[11px] text-slate-400">Готов к запуску</div>
               </div>
             </div>

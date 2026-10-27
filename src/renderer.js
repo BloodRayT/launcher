@@ -6,10 +6,11 @@ window.fenixAPI = {
   minimize: () => tauriCore?.invoke('window_minimize'),
   maximize: () => tauriCore?.invoke('window_maximize'),
   close: () => tauriCore?.invoke('window_close'),
+  openUrl: (url) => tauriCore ? tauriCore.invoke('open_external_url', { url }) : window.open(url, '_blank'),
   getConfig: () => tauriCore ? tauriCore.invoke('get_config') : Promise.resolve({
     username: 'AndreyGusev', accountType: 'offline', ram: 4096, width: 1920, height: 1080,
     javaPath: '', jvmArgs: '-XX:+UseG1GC', showConsole: false, debugMode: false,
-    selectedVersion: '1.21.8-neoforge', selectedServer: 'play.fenixcraft.ru'
+    selectedVersion: 'latest-vanilla', selectedServer: 'play.fenixcraft.ru'
   }),
   saveConfig: (newConfig) => tauriCore ? tauriCore.invoke('save_config', { newConfig }) : Promise.resolve(newConfig),
   selectJava: async () => {
@@ -41,35 +42,119 @@ window.fenixAPI = {
 };
 
 const MY_SERVERS = [
-  { id: 'fenix-main', name: 'FenixCraft', desc: 'Выживание • 1.21.8', ip: 'play.fenixcraft.ru', port: 25565, icon: '🦅', maxDefault: 1000 },
+  { id: 'fenix-main', name: 'FenixCraft', desc: 'Выживание • Vanilla/Mods', ip: 'play.fenixcraft.ru', port: 25565, icon: '🦅', maxDefault: 1000 },
   { id: 'fenix-mods', name: 'FenixTech', desc: 'NeoForge • 1.21.1', ip: 'tech.fenixcraft.ru', port: 25565, icon: '⚙️', maxDefault: 500 },
   { id: 'fenix-rpg',  name: 'FenixRPG',  desc: 'Fabric + Iris • 26.3', ip: 'rpg.fenixcraft.ru', port: 25565, icon: '⚔️', maxDefault: 500 },
   { id: 'fenix-pvp',  name: 'FenixArena', desc: 'Анархия • 1.21.8', ip: 'pvp.fenixcraft.ru', port: 25565, icon: '⭐', maxDefault: 300 }
+];
+
+// Каталог привилегий: VIP, Creative, Moder, Admin, Money
+const SHOP_ITEMS = [
+  {
+    id: 'vip',
+    name: 'Привилегия [VIP]',
+    price: '149 ₽',
+    badge: 'Хит продаж',
+    color: 'from-amber-500/20 to-yellow-600/5 border-amber-500/40',
+    btnColor: 'bg-amber-500 hover:bg-amber-400 text-slate-950',
+    icon: '👑',
+    perks: [
+      'Префикс [VIP] в чате и табе',
+      'Полет /fly в лобби и приватных зонах',
+      'Доступ к киту /kit vip каждые 24ч',
+      'Вход на переполненный сервер',
+      '5 дополнительных точек дома /sethome'
+    ]
+  },
+  {
+    id: 'creativ',
+    name: 'Привилегия [Creative]',
+    price: '299 ₽',
+    badge: 'Строителям',
+    color: 'from-cyan-500/20 to-blue-600/5 border-cyan-500/40',
+    btnColor: 'bg-cyan-400 hover:bg-cyan-300 text-slate-950',
+    icon: '🎨',
+    perks: [
+      'Режим креатива /gm 1 в разрешенных мирах',
+      'Доступ к командам WorldEdit (//set, //copy)',
+      'Префикс [Creative] и цветной чат',
+      'Эксклюзивный набор /kit creative',
+      'Все возможности привилегии VIP'
+    ]
+  },
+  {
+    id: 'moder',
+    name: 'Привилегия [Moder]',
+    price: '599 ₽',
+    badge: 'Страж порядка',
+    color: 'from-purple-500/20 to-indigo-600/5 border-purple-500/40',
+    btnColor: 'bg-purple-500 hover:bg-purple-400 text-white',
+    icon: '🛡️',
+    perks: [
+      'Команды модерации (/mute, /kick, /tp)',
+      'Просмотр инвентаря игроков /invsee',
+      'Режим невидимости /vanish',
+      'Ежедневный бонус /kit moder',
+      'Иммунитет к кику и муту'
+    ]
+  },
+  {
+    id: 'admin',
+    name: 'Привилегия [Admin]',
+    price: '999 ₽',
+    badge: 'Максимум прав',
+    color: 'from-rose-500/20 to-red-600/5 border-rose-500/40',
+    btnColor: 'bg-rose-500 hover:bg-rose-400 text-white',
+    icon: '⚡',
+    perks: [
+      'Полный набор прав [Admin] на сервере',
+      'Команды /ban, /tempban, /god, /heal',
+      'Управление погодой и временем в мире',
+      'Элитный кит /kit admin с топ-ресурсами',
+      'Включает все привилегии ниже'
+    ]
+  },
+  {
+    id: 'money',
+    name: 'Игровая валюта [Money]',
+    price: 'от 49 ₽',
+    badge: 'Экономика',
+    color: 'from-emerald-500/20 to-teal-600/5 border-emerald-500/40',
+    btnColor: 'bg-emerald-500 hover:bg-emerald-400 text-slate-950',
+    icon: '💰',
+    perks: [
+      'Пакеты: 50 000$, 250 000$, 1 000 000$',
+      'Мгновенное зачисление на баланс /money',
+      'Покупка редких ресурсов на аукционе /ah',
+      'Создание собственных варпов и кланов',
+      'Бонус +25% при покупке от 250 000$'
+    ]
+  }
 ];
 
 const FALLBACK_NEWS = [
   {
     tag: 'Обновление',
     tagColor: 'bg-emerald-500 text-slate-950',
-    title: 'Вышел Minecraft 1.21.8 и поддержка 26.3!',
-    text: 'Новые блоки, оптимизация рендера Iris и полная поддержка NeoForge на серверах FenixCraft.',
-    date: '28 сентября 2026',
+    title: 'Прямая загрузка Latest Vanilla без бэкенда!',
+    text: 'Теперь лаунчер сам качает самую свежую версию Minecraft напрямую с официальных серверов Mojang.',
+    date: '27 октября 2026',
     image: 'https://images.unsplash.com/photo-1607513746994-51f730a44832?w=600&q=80'
   },
   {
-    tag: 'Моды',
-    tagColor: 'bg-purple-500 text-white',
-    title: 'Лучшие моды для 1.21.1 — 1.21.8',
-    text: 'Подборка самых популярных индустриальных и магических модов нашего проекта.',
-    date: '26 сентября 2026',
+    tag: 'Магазин',
+    tagColor: 'bg-amber-500 text-slate-950',
+    title: 'Обновлен магазин: VIP, Creative, Moder, Admin',
+    text: 'Открыта новая вкладка «Магазин» с привилегиями и игровой валютой Money.',
+    date: '26 октября 2026',
     image: 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=600&q=80'
   },
   {
     tag: 'Лаунчер',
     tagColor: 'bg-cyan-500 text-slate-950',
-    title: 'Обновление защиты SHA-256 и Java 21',
-    text: 'Лаунчер автоматически проверяет целостность клиента и докачивает нужные библиотеки.',
-    date: '24 сентября 2026',
+    title: 'Ультра-легкий клиент Tauri v2 (3.8 МБ)',
+    text: 'Мгновенный запуск, автосохранение настроек и прямой заход на play.fenixcraft.ru.',
+    date: '24 октября 2026',
     image: 'https://images.unsplash.com/photo-1534447677768-be436bb09401?w=600&q=80'
   }
 ];
@@ -77,7 +162,13 @@ const FALLBACK_NEWS = [
 let currentConfig = {};
 
 function switchTab(tabId) {
-  ['home', 'settings', 'faq', 'console'].forEach(id => {
+  if (tabId === 'play-now') {
+    switchTab('home');
+    document.getElementById('btn-play').click();
+    return;
+  }
+
+  ['home', 'shop', 'servers', 'settings', 'faq', 'console'].forEach(id => {
     const el = document.getElementById(`tab-${id}`);
     if (el) el.classList.add('hidden');
   });
@@ -90,16 +181,40 @@ function switchTab(tabId) {
 }
 
 document.querySelectorAll('.nav-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    const tab = btn.dataset.tab === 'mods' || btn.dataset.tab === 'servers' ? 'home' : btn.dataset.tab;
-    switchTab(tab);
-  });
+  btn.addEventListener('click', () => switchTab(btn.dataset.tab));
 });
 
 document.getElementById('btn-top-settings').onclick = () => switchTab('settings');
 document.getElementById('btn-quick-settings').onclick = () => switchTab('settings');
 document.getElementById('btn-open-faq').onclick = () => switchTab('faq');
 document.getElementById('btn-toggle-console').onclick = () => switchTab('console');
+
+function renderShop() {
+  const grid = document.getElementById('shop-grid');
+  grid.innerHTML = SHOP_ITEMS.map(item => `
+    <div class="rounded-2xl p-4 bg-gradient-to-br ${item.color} border flex flex-col justify-between space-y-4">
+      <div>
+        <div class="flex items-center justify-between">
+          <span class="text-2xl">${item.icon}</span>
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-white/10 text-white">${item.badge}</span>
+        </div>
+        <h3 class="text-base font-extrabold text-white mt-2">${item.name}</h3>
+        <div class="text-xl font-black text-emerald-400 mt-0.5">${item.price}</div>
+        <ul class="text-xs text-slate-300 space-y-1.5 mt-3">
+          ${item.perks.map(p => `<li class="flex items-start space-x-1.5"><span class="text-emerald-400">✔</span><span>${p}</span></li>`).join('')}
+        </ul>
+      </div>
+      <button onclick="buyPrivilege('${item.id}')" class="w-full py-2.5 rounded-xl font-bold text-xs transition active:scale-95 ${item.btnColor}">
+        Купить для ${currentConfig.username || 'Игрока'}
+      </button>
+    </div>
+  `).join('');
+}
+
+window.buyPrivilege = (itemId) => {
+  const nick = encodeURIComponent(currentConfig.username || 'Player');
+  window.fenixAPI.openUrl(`https://fenixcraft.trademc.org/?nickname=${nick}&item=${itemId}`);
+};
 
 function renderNews(posts) {
   const grid = document.getElementById('news-grid');
@@ -132,9 +247,10 @@ async function loadVkNews() {
 
 async function refreshServers() {
   const container = document.getElementById('servers-list');
+  const fullContainer = document.getElementById('servers-full-list');
   const statusMap = await window.fenixAPI.getServersStatus(MY_SERVERS);
 
-  container.innerHTML = MY_SERVERS.map(srv => {
+  const html = MY_SERVERS.map(srv => {
     const st = statusMap[srv.id] || { online: false, players: 0, maxPlayers: srv.maxDefault };
     const isSelected = currentConfig.selectedServer === srv.ip;
     return `
@@ -144,7 +260,7 @@ async function refreshServers() {
           <div class="w-9 h-9 rounded-full bg-slate-800 flex items-center justify-center text-base">${srv.icon}</div>
           <div>
             <div class="text-xs font-bold text-white">${srv.name}</div>
-            <div class="text-[10px] text-slate-400">${srv.desc}</div>
+            <div class="text-[10px] text-slate-400">${srv.desc} • ${srv.ip}</div>
           </div>
         </div>
         <div class="text-xs font-semibold flex items-center space-x-1.5 ${st.online ? 'text-emerald-400' : 'text-slate-500'}">
@@ -154,6 +270,9 @@ async function refreshServers() {
       </div>
     `;
   }).join('');
+
+  container.innerHTML = html;
+  if (fullContainer) fullContainer.innerHTML = html;
 }
 
 window.selectServer = async (ip) => {
@@ -186,10 +305,10 @@ async function bindSettings() {
   elArgs.value = currentConfig.jvmArgs;
   elConsole.checked = currentConfig.showConsole;
   elDebug.checked = currentConfig.debugMode;
-  elVersion.value = currentConfig.selectedVersion;
+  elVersion.value = currentConfig.selectedVersion || 'latest-vanilla';
 
   document.getElementById('sidebar-username').textContent = currentConfig.username;
-  document.getElementById('last-launch-ver').textContent = currentConfig.selectedVersion.split('-')[0];
+  document.getElementById('last-launch-ver').textContent = elVersion.value.split('-')[0];
 
   const autoSave = async () => {
     elRamLabel.textContent = `${elRam.value} МБ`;
@@ -210,6 +329,7 @@ async function bindSettings() {
     document.getElementById('sidebar-account-type').textContent =
       currentConfig.accountType === 'microsoft' ? 'Лицензия' : 'Онлайн';
     document.getElementById('last-launch-ver').textContent = currentConfig.selectedVersion.split('-')[0];
+    renderShop();
   };
 
   [elUser, elAccType, elRam, elWidth, elHeight, elJava, elArgs, elConsole, elDebug, elVersion].forEach(el => {
@@ -232,7 +352,7 @@ document.getElementById('btn-play').addEventListener('click', async () => {
   const progBox = document.getElementById('progress-container');
 
   btn.disabled = true;
-  txt.textContent = 'Запуск...';
+  txt.textContent = 'Скачивание...';
   progBox.classList.remove('hidden');
 
   if (currentConfig.showConsole) switchTab('console');
@@ -252,7 +372,7 @@ window.fenixAPI.onLog((msg) => {
 
 window.fenixAPI.onProgress((prog) => {
   const percent = Math.round((prog.task / prog.total) * 100) || 0;
-  document.getElementById('progress-status').textContent = `Загрузка файлов (${prog.type}): ${prog.task}/${prog.total}`;
+  document.getElementById('progress-status').textContent = `${prog.type} (${prog.task}/${prog.total})`;
   document.getElementById('progress-percent').textContent = `${percent}%`;
   document.getElementById('progress-bar').style.width = `${percent}%`;
 });
@@ -268,6 +388,7 @@ document.getElementById('btn-ping-servers').onclick = refreshServers;
 
 (async () => {
   await bindSettings();
+  renderShop();
   await loadVkNews();
   await refreshServers();
   setInterval(refreshServers, 30000);
