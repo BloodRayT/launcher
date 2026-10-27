@@ -1,7 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use serde::{Deserialize, Serialize};
-use std::fs::{self, File};
+use std::fs;
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::path::PathBuf;
@@ -23,6 +23,8 @@ struct LauncherConfig {
     debug_mode: bool,
     selected_version: String,
     selected_server: String,
+    #[serde(default)]
+    vk_token: String,
 }
 
 impl Default for LauncherConfig {
@@ -39,6 +41,187 @@ impl Default for LauncherConfig {
             debug_mode: false,
             selected_version: "latest-vanilla".to_string(),
             selected_server: "play.fenixcraft.ru".to_string(),
+            vk_token: String::new(),
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct ServerItem {
+    id: String,
+    ip: String,
+    port: u16,
+    #[serde(rename = "maxDefault")]
+    max_default: u32,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ServerStatus {
+    online: bool,
+    players: u32,
+    max_players: u32,
+}
+
+fn get_game_dir() -> PathBuf {
+    let mut dir = dirs::data_dir().unwrap_or_else(|| PathBuf::from("."));
+    dir.push(".fenixcraft");
+    let _ = fs::create_dir_all(&dir);
+    dir
+}
+
+fn get_config_path() -> PathBuf {
+    let mut path = get_game_dir();
+    path.push("launcher_config.json");
+    path
+}
+
+#[tauri::command]
+fn get_config() -> LauncherConfig {
+    let path = get_config_path();
+    if let Ok(data) = fs::read_to_string(&path) {
+        if let Ok(cfg) = serde_json::from_str::<LauncherConfig>(&data) {
+            return cfg;
+        }
+    }
+    let default_cfg = LauncherConfig::default();
+    if let Ok(json) = serde_json::to_string_pretty(&default_cfg) {
+        let _ = fs::write(path, json);
+    }
+    default_cfg
+}
+
+#[tauri::command]
+fn save_config(new_config: LauncherConfig) -> LauncherConfig {
+    let path = get_config_path();
+    if let Ok(json) = serde_json::to_string_pretty(&new_config) {
+        let _ = fs::write(path, json);
+    }
+    new_config
+}
+
+#[tauri::command]
+fn window_minimize(window: Window) {
+    let _ = window.minimize();
+}
+
+#[tauri::command]
+fn window_maximize(window: Window) {
+    if window.is_maximized().unwrap_or(false) {
+        let _ = window.unmaximize();
+    } else {
+        let _ = window.maximize();
+    }
+}
+
+#[tauri::command]
+fn window_close(window: Window) {
+    let _ = window.close();
+}
+
+#[tauri::command]
+fn open_external_url(url: String) {
+    #[cfg(target_os = "windows")]
+    let _ = Command::new("cmd").args(["/C", "start", "", &url]).spawn();
+    #[cfg(target_os = "linux")]
+    let _ = Command::new("xdg-open").arg(&url).spawn();
+    #[cfg(target_os = "macos")]
+    let _ = Command::new("open").arg(&url).spawn();
+}
+
+fn ping_minecraft_server(ip: &str, port: u16, fallback_max: u32) -> ServerStatus {
+    use std::net::ToSocketAddrs;
+    let addr_str = format!("{}:{}", ip, port);
+    if let Ok(mut addrs) = addr_str.to_socket_addrs() {
+        if let Some(socket_addr) = addrs.next() {
+            if let Ok(mut stream) = TcpStream::connect_timeout(&socket_addr, Duration::from_millis(2000)) {
+                let _ = stream.set_read_timeout(Some(Duration::from_millis(2000)));
+                let _ = stream.set_write_timeout(Some(Duration::from_millis(2000)));
+                if stream.write_all(&[0xFE, 0x01]).is_ok() {
+                    let mut buf = [0u8; 512];
+                    if let Ok(n) = stream.read(&mut buf) {
+                        if n > 3 && buf[0] == 0xFF {
+                            let utf16: Vec<u16> = buf[3..n]
+                                .chunks_exact(2)
+                                .map(|c| u16::from_be_bytes([c[0], c[1]]))
+                                .collect();
+                            let text = String::from_utf16_lossy(&utf16);
+                            let parts: Vec<&str> = text.split('\0').collect();
+                            if parts.len() >= 6 {
+                                let online = parts[4].parse::<u32>().unwrap_or(0);
+                                let max = parts[5].parse::<u32>().unwrap_or(fallback_max);
+                                return ServerStatus {
+                                    online: true,
+                                    players: online,
+                                    max_players: max,
+                                };
+                            }
+                        }
+                    }
+                }
+                return ServerStatus {
+                    online: true,
+                    players: 0,
+                    max_players: fallback_max,
+                };
+            }
+        }
+    }
+    ServerStatus {
+        online: false,
+        players: 0,
+        max_players: fallback_max,
+    }
+}
+
+#[tauri::command]
+async fn get_servers_status(servers
+# 1. Обновляем src-tauri/src/main.rs (Добавлен прямой парсинг стены https://vk.ru/fenixcraft + VK API domain=fenixcraft)
+cat << 'EOF' > src-tauri/src/main.rs
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
+use serde::{Deserialize, Serialize};
+use std::fs;
+use std::io::{Read, Write};
+use std::net::TcpStream;
+use std::path::PathBuf;
+use std::process::{Command, Stdio};
+use std::time::Duration;
+use tauri::{AppHandle, Emitter, Window};
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+struct LauncherConfig {
+    username: String,
+    account_type: String,
+    ram: u32,
+    width: u32,
+    height: u32,
+    java_path: String,
+    jvm_args: String,
+    show_console: bool,
+    debug_mode: bool,
+    selected_version: String,
+    selected_server: String,
+    #[serde(default)]
+    vk_token: String,
+}
+
+impl Default for LauncherConfig {
+    fn default() -> Self {
+        Self {
+            username: "AndreyGusev".to_string(),
+            account_type: "offline".to_string(),
+            ram: 4096,
+            width: 1920,
+            height: 1080,
+            java_path: String::new(),
+            jvm_args: "-XX:+UseG1GC -XX:+ParallelRefProcEnabled -XX:MaxGCPauseMillis=200".to_string(),
+            show_console: false,
+            debug_mode: false,
+            selected_version: "latest-vanilla".to_string(),
+            selected_server: "play.fenixcraft.ru".to_string(),
+            vk_token: String::new(),
         }
     }
 }
@@ -185,21 +368,130 @@ async fn get_servers_status(servers: Vec<ServerItem>) -> std::collections::HashM
     map
 }
 
+// Очистка HTML-тегов из текста поста ВК
+fn strip_html_tags(input: &str) -> String {
+    let mut out = String::new();
+    let mut in_tag = false;
+    let replaced = input.replace("<br>", "\n").replace("<br/>", "\n");
+    for c in replaced.chars() {
+        if c == '<' {
+            in_tag = true;
+        } else if c == '>' {
+            in_tag = false;
+        } else if !in_tag {
+            out.push(c);
+        }
+    }
+    out.replace("&quot;", "\"")
+        .replace("&amp;", "&")
+        .replace("&#33;", "!")
+        .replace("&nbsp;", " ")
+        .trim()
+        .to_string()
+}
+
+// --- ЗАГРУЗКА НОВОСТЕЙ СО СТЕНЫ HTTPS://VK.RU/FENIXCRAFT ---
 #[tauri::command]
 async fn get_vk_news() -> serde_json::Value {
-    let vk_token = std::env::var("VK_TOKEN").unwrap_or_else(|_| "YOUR_VK_SERVICE_TOKEN".to_string());
-    let group_id = "-123456789";
-    let url = format!(
-        "https://api.vk.com/method/wall.get?owner_id={}&count=6&access_token={}&v=5.199",
-        group_id, vk_token
-    );
-    if let Ok(resp) = reqwest::get(&url).await {
-        if let Ok(json) = resp.json::<serde_json::Value>().await {
-            if json.get("response").is_some() {
-                return serde_json::json!({ "success": true, "data": json["response"]["items"] });
+    let cfg = get_config();
+    let vk_token = if !cfg.vk_token.trim().is_empty() {
+        cfg.vk_token.trim().to_string()
+    } else {
+        std::env::var("VK_TOKEN").unwrap_or_default()
+    };
+
+    let client = reqwest::Client::builder()
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36")
+        .timeout(Duration::from_secs(10))
+        .build()
+        .unwrap_or_default();
+
+    // 1. Если указан сервисный токен ВК — получаем посты через официальный метод wall.get для домена fenixcraft
+    if !vk_token.is_empty() && vk_token != "YOUR_VK_SERVICE_TOKEN" {
+        let api_url = format!(
+            "https://api.vk.ru/method/wall.get?domain=fenixcraft&count=6&access_token={}&v=5.199",
+            vk_token
+        );
+        if let Ok(resp) = client.get(&api_url).send().await {
+            if let Ok(json) = resp.json::<serde_json::Value>().await {
+                if let Some(items) = json["response"]["items"].as_array() {
+                    if !items.is_empty() {
+                        return serde_json::json!({ "success": true, "source": "api", "data": items });
+                    }
+                }
             }
         }
     }
+
+    // 2. Прямой парсинг публичной стены https://vk.ru/fenixcraft (работает без токена!)
+    for url in ["https://m.vk.ru/fenixcraft", "https://vk.ru/fenixcraft"] {
+        if let Ok(resp) = client.get(url).header("Accept-Language", "ru-RU,ru;q=0.9").send().await {
+            if let Ok(html) = resp.text().await {
+                let mut parsed_posts = Vec::new();
+                let blocks: Vec<&str> = if html.contains("wall_post_text") {
+                    html.split("wall_post_text").skip(1).collect()
+                } else {
+                    html.split("pi_text").skip(1).collect()
+                };
+
+                for (idx, block) in blocks.iter().take(6).enumerate() {
+                    if let Some(start_gt) = block.find('>') {
+                        let rest = &block[start_gt + 1..];
+                        if let Some(end_div) = rest.find("</div>") {
+                            let clean_text = strip_html_tags(&rest[..end_div]);
+                            if clean_text.chars().count() < 5 {
+                                continue;
+                            }
+
+                            // Ищем прикрепленную картинку поста, если есть в блоке
+                            let mut img_url = "https://images.unsplash.com/photo-1607513746994-51f730a44832?w=600&q=80".to_string();
+                            let search_area = &rest[..rest.len().min(4500)];
+                            for prefix in ["https://sun", "https://pp.userapi.com"] {
+                                if let Some(pos) = search_area.find(prefix) {
+                                    let sub = &search_area[pos..];
+                                    let end_pos = sub
+                                        .find(|c: char| c == '"' || c == '\'' || c == ')' || c == ' ' || c == '&')
+                                        .unwrap_or(sub.len());
+                                    let candidate = &sub[..end_pos];
+                                    if candidate.len() > 20 {
+                                        img_url = candidate.to_string();
+                                        break;
+                                    }
+                                }
+                            }
+
+                            let title_line = clean_text
+                                .lines()
+                                .next()
+                                .unwrap_or("Новость FenixCraft")
+                                .chars()
+                                .take(55)
+                                .collect::<String>();
+
+                            parsed_posts.push(serde_json::json!({
+                                "id": idx + 1,
+                                "tag": "VK.RU/FENIXCRAFT",
+                                "title": title_line,
+                                "text": clean_text,
+                                "date": "Стена сообщества ВК",
+                                "image": img_url,
+                                "url": "https://vk.ru/fenixcraft"
+                            }));
+                        }
+                    }
+                }
+
+                if !parsed_posts.is_empty() {
+                    return serde_json::json!({
+                        "success": true,
+                        "source": "public_wall",
+                        "posts": parsed_posts
+                    });
+                }
+            }
+        }
+    }
+
     serde_json::json!({ "success": false })
 }
 
@@ -227,7 +519,6 @@ fn find_java_binary_in_dir(dir: &PathBuf, target_name: &str) -> Option<PathBuf> 
 }
 
 async fn ensure_java_21(app: &AppHandle, custom_path: &str) -> Result<String, String> {
-    // 1. Если игрок сам указал путь к Java в настройках
     if !custom_path.trim().is_empty() {
         let p = PathBuf::from(custom_path.trim());
         if p.exists() {
@@ -238,19 +529,16 @@ async fn ensure_java_21(app: &AppHandle, custom_path: &str) -> Result<String, St
     let bin_name = if cfg!(windows) { "javaw.exe" } else { "java" };
     let runtime_dir = get_game_dir().join("runtime").join("java-21");
 
-    // 2. Если портативная Java 21 уже была скачана ранее в .fenixcraft/runtime/java-21
     if let Some(found) = find_java_binary_in_dir(&runtime_dir, bin_name) {
         return Ok(found.to_string_lossy().to_string());
     }
 
-    // 3. Проверяем, есть ли в системе установленная Java
     if let Ok(out) = Command::new("java").arg("-version").output() {
         if out.status.success() {
             return Ok(bin_name.to_string());
         }
     }
 
-    // 4. Авто-скачивание портативной Java 21 с официального сервера Eclipse Adoptium
     let _ = app.emit(
         "game:log",
         "[Java 21 Auto-Installer] На ПК не найдена Java. Скачиваем портативную Java 21 (Adoptium)...",
@@ -310,9 +598,7 @@ async fn ensure_java_21(app: &AppHandle, custom_path: &str) -> Result<String, St
             "total": 100
         }),
     );
-    let _ = app.emit("game:log", "[Java 21 Auto-Installer] Распаковка архива среды выполнения...");
 
-    // Нативная распаковка встроенным системным tar (работает в Windows 10/11, Linux и macOS)
     let status = Command::new("tar")
         .arg("-xf")
         .arg(&archive_path)
@@ -337,14 +623,12 @@ async fn ensure_java_21(app: &AppHandle, custom_path: &str) -> Result<String, St
                 let _ = fs::set_permissions(&found, perms);
             }
         }
-        let _ = app.emit("game:log", "[Java 21 Auto-Installer] Портативная Java 21 успешно установлена!");
         return Ok(found.to_string_lossy().to_string());
     }
 
     Err("Исполняемый файл Java 21 не найден после распаковки".to_string())
 }
 
-// --- ПРЯМАЯ ЗАГРУЗКА ВАНИЛЬНОЙ ВЕРСИИ С ОФИЦИАЛЬНЫХ СЕРВЕРОВ MOJANG БЕЗ БЭКЕНДА ---
 async fn download_vanilla_from_mojang(
     app: &AppHandle,
     requested_version: &str,
@@ -386,11 +670,6 @@ async fn download_vanilla_from_mojang(
 
     let actual_ver = ver_entry["id"].as_str().unwrap_or(&latest_release).to_string();
     let ver_url = ver_entry["url"].as_str().ok_or("Отсутствует URL версии")?;
-
-    let _ = app.emit(
-        "game:log",
-        format!("[Mojang Direct] Выбрана официальная версия Minecraft {}...", actual_ver),
-    );
 
     let ver_json: serde_json::Value = client
         .get(ver_url)
@@ -517,7 +796,6 @@ async fn launch_game(app: AppHandle) -> serde_json::Value {
             format!("[FenixCraft v1.0] Подготовка к запуску профиля: {}...", config.selected_version),
         );
 
-        // 1. Проверяем или автоматически скачиваем Java 21 (Adoptium)
         let java_bin = match ensure_java_21(&app_clone, &config.java_path).await {
             Ok(bin) => bin,
             Err(e) => {
@@ -527,7 +805,6 @@ async fn launch_game(app: AppHandle) -> serde_json::Value {
             }
         };
 
-        // 2. Скачиваем клиент и библиотеки
         let (instance_dir, classpath_jars, mc_ver, asset_id) =
             match download_vanilla_from_mojang(&app_clone, &config.selected_version).await {
                 Ok(res) => res,

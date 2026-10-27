@@ -10,7 +10,7 @@ window.fenixAPI = {
   getConfig: () => tauriCore ? tauriCore.invoke('get_config') : Promise.resolve({
     username: 'AndreyGusev', accountType: 'offline', ram: 4096, width: 1920, height: 1080,
     javaPath: '', jvmArgs: '-XX:+UseG1GC', showConsole: false, debugMode: false,
-    selectedVersion: 'latest-vanilla', selectedServer: 'play.fenixcraft.ru'
+    selectedVersion: 'latest-vanilla', selectedServer: 'play.fenixcraft.ru', vkToken: ''
   }),
   saveConfig: (newConfig) => tauriCore ? tauriCore.invoke('save_config', { newConfig }) : Promise.resolve(newConfig),
   selectJava: async () => {
@@ -21,17 +21,26 @@ window.fenixAPI = {
   getVkNews: async () => {
     if (!tauriCore) return { success: false };
     const res = await tauriCore.invoke('get_vk_news');
-    if (res && res.success && Array.isArray(res.data)) {
-      const posts = res.data.map(post => {
-        const photo = post.attachments?.find(a => a.type === 'photo')?.photo?.sizes?.pop()?.url;
-        return {
-          title: 'Новость FenixCraft',
-          text: post.text || 'Обновление на сервере!',
-          date: new Date(post.date * 1000).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }),
-          image: photo || 'https://images.unsplash.com/photo-1607513746994-51f730a44832?w=600&q=80'
-        };
-      });
-      return { success: true, posts };
+    if (res && res.success) {
+      if (Array.isArray(res.posts) && res.posts.length > 0) {
+        return { success: true, posts: res.posts };
+      }
+      if (Array.isArray(res.data) && res.data.length > 0) {
+        const posts = res.data.map(post => {
+          const photo = post.attachments?.find(a => a.type === 'photo')?.photo?.sizes?.pop()?.url;
+          const clean = (post.text || 'Новость сообщества FenixCraft').trim();
+          return {
+            tag: 'VK.RU/FENIXCRAFT',
+            tagColor: 'bg-emerald-500 text-slate-950',
+            title: clean.split('\n')[0].substring(0, 55) || 'FenixCraft ВК',
+            text: clean,
+            date: new Date(post.date * 1000).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }),
+            image: photo || 'https://images.unsplash.com/photo-1607513746994-51f730a44832?w=600&q=80',
+            url: `https://vk.ru/fenixcraft?w=wall${post.owner_id}_${post.id}`
+          };
+        });
+        return { success: true, posts };
+      }
     }
     return { success: false };
   },
@@ -48,7 +57,6 @@ const MY_SERVERS = [
   { id: 'fenix-pvp',  name: 'FenixArena', desc: 'Анархия • 1.21.8', ip: 'pvp.fenixcraft.ru', port: 25565, icon: '⭐', maxDefault: 300 }
 ];
 
-// Каталог привилегий: VIP, Creative, Moder, Admin, Money
 const SHOP_ITEMS = [
   {
     id: 'vip',
@@ -134,28 +142,31 @@ const SHOP_ITEMS = [
 
 const FALLBACK_NEWS = [
   {
-    tag: 'Обновление',
+    tag: 'VK.RU/FENIXCRAFT',
     tagColor: 'bg-emerald-500 text-slate-950',
-    title: 'Прямая загрузка Latest Vanilla без бэкенда!',
-    text: 'Теперь лаунчер сам качает самую свежую версию Minecraft напрямую с официальных серверов Mojang.',
-    date: '27 октября 2026',
-    image: 'https://images.unsplash.com/photo-1607513746994-51f730a44832?w=600&q=80'
+    title: 'Сообщество FenixCraft ВКонтакте',
+    text: 'Нажмите на карточку, чтобы открыть официальную стену vk.ru/fenixcraft со всеми новостями и конкурсами!',
+    date: 'Официальная группа',
+    image: 'https://images.unsplash.com/photo-1607513746994-51f730a44832?w=600&q=80',
+    url: 'https://vk.ru/fenixcraft'
   },
   {
     tag: 'Магазин',
     tagColor: 'bg-amber-500 text-slate-950',
-    title: 'Обновлен магазин: VIP, Creative, Moder, Admin',
-    text: 'Открыта новая вкладка «Магазин» с привилегиями и игровой валютой Money.',
-    date: '26 октября 2026',
-    image: 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=600&q=80'
+    title: 'Привилегии VIP, Creative, Moder, Admin и Money',
+    text: 'Поддержите развитие сервера и получите уникальные возможности в разделе «Магазин».',
+    date: 'FenixCraft Shop',
+    image: 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=600&q=80',
+    url: 'https://fenixcraft.trademc.org/'
   },
   {
-    tag: 'Лаунчер',
+    tag: 'Лаунчер v1.0',
     tagColor: 'bg-cyan-500 text-slate-950',
-    title: 'Ультра-легкий клиент Tauri v2 (3.8 МБ)',
-    text: 'Мгновенный запуск, автосохранение настроек и прямой заход на play.fenixcraft.ru.',
-    date: '24 октября 2026',
-    image: 'https://images.unsplash.com/photo-1534447677768-be436bb09401?w=600&q=80'
+    title: 'Автозагрузка Java 21 и Latest Vanilla',
+    text: 'Лаунчер автоматически скачивает Java 21 (Adoptium) и последнюю версию игры напрямую с серверов Mojang.',
+    date: 'Релиз v1.0',
+    image: 'https://images.unsplash.com/photo-1534447677768-be436bb09401?w=600&q=80',
+    url: 'https://vk.ru/fenixcraft'
   }
 ];
 
@@ -219,10 +230,11 @@ window.buyPrivilege = (itemId) => {
 function renderNews(posts) {
   const grid = document.getElementById('news-grid');
   grid.innerHTML = posts.slice(0, 3).map(p => `
-    <div class="glass-card rounded-xl overflow-hidden flex flex-col justify-between border border-white/5 hover:border-emerald-500/30 transition">
+    <div onclick="window.fenixAPI.openUrl('${p.url || 'https://vk.ru/fenixcraft'}')"
+         class="glass-card rounded-xl overflow-hidden flex flex-col justify-between border border-white/5 hover:border-emerald-500/40 transition cursor-pointer">
       <div class="h-28 bg-cover bg-center relative" style="background-image: url('${p.image}')">
         <span class="absolute bottom-2 left-2 text-[10px] font-bold px-2.5 py-0.5 rounded-full ${p.tagColor || 'bg-emerald-500 text-slate-950'}">
-          ${p.tag || 'ВКонтакте'}
+          ${p.tag || 'VK.RU/FENIXCRAFT'}
         </span>
       </div>
       <div class="p-3.5 flex-1 flex flex-col justify-between space-y-2">
@@ -230,7 +242,10 @@ function renderNews(posts) {
           <h4 class="text-sm font-bold text-white line-clamp-1">${p.title || 'Новость FenixCraft'}</h4>
           <p class="text-xs text-slate-400 mt-1 line-clamp-2">${p.text}</p>
         </div>
-        <div class="text-[11px] text-slate-500 pt-1">📅 ${p.date}</div>
+        <div class="text-[11px] text-emerald-400/80 pt-1 flex justify-between items-center">
+          <span>📅 ${p.date}</span>
+          <span>Читать в ВК ↗</span>
+        </div>
       </div>
     </div>
   `).join('');
@@ -238,7 +253,7 @@ function renderNews(posts) {
 
 async function loadVkNews() {
   const res = await window.fenixAPI.getVkNews();
-  if (res.success && res.posts.length > 0) {
+  if (res.success && res.posts && res.posts.length > 0) {
     renderNews(res.posts);
   } else {
     renderNews(FALLBACK_NEWS);
@@ -323,7 +338,8 @@ async function bindSettings() {
       showConsole: elConsole.checked,
       debugMode: elDebug.checked,
       selectedVersion: elVersion.value,
-      selectedServer: currentConfig.selectedServer || 'play.fenixcraft.ru'
+      selectedServer: currentConfig.selectedServer || 'play.fenixcraft.ru',
+      vkToken: currentConfig.vkToken || ''
     });
     document.getElementById('sidebar-username').textContent = currentConfig.username;
     document.getElementById('sidebar-account-type').textContent =
