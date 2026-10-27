@@ -175,186 +175,6 @@ fn ping_minecraft_server(ip: &str, port: u16, fallback_max: u32) -> ServerStatus
 }
 
 #[tauri::command]
-async fn get_servers_status(servers
-# 1. Обновляем src-tauri/src/main.rs (Добавлен прямой парсинг стены https://vk.ru/fenixcraft + VK API domain=fenixcraft)
-cat << 'EOF' > src-tauri/src/main.rs
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-
-use serde::{Deserialize, Serialize};
-use std::fs;
-use std::io::{Read, Write};
-use std::net::TcpStream;
-use std::path::PathBuf;
-use std::process::{Command, Stdio};
-use std::time::Duration;
-use tauri::{AppHandle, Emitter, Window};
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-#[serde(rename_all = "camelCase")]
-struct LauncherConfig {
-    username: String,
-    account_type: String,
-    ram: u32,
-    width: u32,
-    height: u32,
-    java_path: String,
-    jvm_args: String,
-    show_console: bool,
-    debug_mode: bool,
-    selected_version: String,
-    selected_server: String,
-    #[serde(default)]
-    vk_token: String,
-}
-
-impl Default for LauncherConfig {
-    fn default() -> Self {
-        Self {
-            username: "AndreyGusev".to_string(),
-            account_type: "offline".to_string(),
-            ram: 4096,
-            width: 1920,
-            height: 1080,
-            java_path: String::new(),
-            jvm_args: "-XX:+UseG1GC -XX:+ParallelRefProcEnabled -XX:MaxGCPauseMillis=200".to_string(),
-            show_console: false,
-            debug_mode: false,
-            selected_version: "latest-vanilla".to_string(),
-            selected_server: "play.fenixcraft.ru".to_string(),
-            vk_token: String::new(),
-        }
-    }
-}
-
-#[derive(Deserialize)]
-struct ServerItem {
-    id: String,
-    ip: String,
-    port: u16,
-    #[serde(rename = "maxDefault")]
-    max_default: u32,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ServerStatus {
-    online: bool,
-    players: u32,
-    max_players: u32,
-}
-
-fn get_game_dir() -> PathBuf {
-    let mut dir = dirs::data_dir().unwrap_or_else(|| PathBuf::from("."));
-    dir.push(".fenixcraft");
-    let _ = fs::create_dir_all(&dir);
-    dir
-}
-
-fn get_config_path() -> PathBuf {
-    let mut path = get_game_dir();
-    path.push("launcher_config.json");
-    path
-}
-
-#[tauri::command]
-fn get_config() -> LauncherConfig {
-    let path = get_config_path();
-    if let Ok(data) = fs::read_to_string(&path) {
-        if let Ok(cfg) = serde_json::from_str::<LauncherConfig>(&data) {
-            return cfg;
-        }
-    }
-    let default_cfg = LauncherConfig::default();
-    if let Ok(json) = serde_json::to_string_pretty(&default_cfg) {
-        let _ = fs::write(path, json);
-    }
-    default_cfg
-}
-
-#[tauri::command]
-fn save_config(new_config: LauncherConfig) -> LauncherConfig {
-    let path = get_config_path();
-    if let Ok(json) = serde_json::to_string_pretty(&new_config) {
-        let _ = fs::write(path, json);
-    }
-    new_config
-}
-
-#[tauri::command]
-fn window_minimize(window: Window) {
-    let _ = window.minimize();
-}
-
-#[tauri::command]
-fn window_maximize(window: Window) {
-    if window.is_maximized().unwrap_or(false) {
-        let _ = window.unmaximize();
-    } else {
-        let _ = window.maximize();
-    }
-}
-
-#[tauri::command]
-fn window_close(window: Window) {
-    let _ = window.close();
-}
-
-#[tauri::command]
-fn open_external_url(url: String) {
-    #[cfg(target_os = "windows")]
-    let _ = Command::new("cmd").args(["/C", "start", "", &url]).spawn();
-    #[cfg(target_os = "linux")]
-    let _ = Command::new("xdg-open").arg(&url).spawn();
-    #[cfg(target_os = "macos")]
-    let _ = Command::new("open").arg(&url).spawn();
-}
-
-fn ping_minecraft_server(ip: &str, port: u16, fallback_max: u32) -> ServerStatus {
-    use std::net::ToSocketAddrs;
-    let addr_str = format!("{}:{}", ip, port);
-    if let Ok(mut addrs) = addr_str.to_socket_addrs() {
-        if let Some(socket_addr) = addrs.next() {
-            if let Ok(mut stream) = TcpStream::connect_timeout(&socket_addr, Duration::from_millis(2000)) {
-                let _ = stream.set_read_timeout(Some(Duration::from_millis(2000)));
-                let _ = stream.set_write_timeout(Some(Duration::from_millis(2000)));
-                if stream.write_all(&[0xFE, 0x01]).is_ok() {
-                    let mut buf = [0u8; 512];
-                    if let Ok(n) = stream.read(&mut buf) {
-                        if n > 3 && buf[0] == 0xFF {
-                            let utf16: Vec<u16> = buf[3..n]
-                                .chunks_exact(2)
-                                .map(|c| u16::from_be_bytes([c[0], c[1]]))
-                                .collect();
-                            let text = String::from_utf16_lossy(&utf16);
-                            let parts: Vec<&str> = text.split('\0').collect();
-                            if parts.len() >= 6 {
-                                let online = parts[4].parse::<u32>().unwrap_or(0);
-                                let max = parts[5].parse::<u32>().unwrap_or(fallback_max);
-                                return ServerStatus {
-                                    online: true,
-                                    players: online,
-                                    max_players: max,
-                                };
-                            }
-                        }
-                    }
-                }
-                return ServerStatus {
-                    online: true,
-                    players: 0,
-                    max_players: fallback_max,
-                };
-            }
-        }
-    }
-    ServerStatus {
-        online: false,
-        players: 0,
-        max_players: fallback_max,
-    }
-}
-
-#[tauri::command]
 async fn get_servers_status(servers: Vec<ServerItem>) -> std::collections::HashMap<String, ServerStatus> {
     let mut map = std::collections::HashMap::new();
     for srv in servers {
@@ -368,7 +188,6 @@ async fn get_servers_status(servers: Vec<ServerItem>) -> std::collections::HashM
     map
 }
 
-// Очистка HTML-тегов из текста поста ВК
 fn strip_html_tags(input: &str) -> String {
     let mut out = String::new();
     let mut in_tag = false;
@@ -390,7 +209,6 @@ fn strip_html_tags(input: &str) -> String {
         .to_string()
 }
 
-// --- ЗАГРУЗКА НОВОСТЕЙ СО СТЕНЫ HTTPS://VK.RU/FENIXCRAFT ---
 #[tauri::command]
 async fn get_vk_news() -> serde_json::Value {
     let cfg = get_config();
@@ -406,7 +224,6 @@ async fn get_vk_news() -> serde_json::Value {
         .build()
         .unwrap_or_default();
 
-    // 1. Если указан сервисный токен ВК — получаем посты через официальный метод wall.get для домена fenixcraft
     if !vk_token.is_empty() && vk_token != "YOUR_VK_SERVICE_TOKEN" {
         let api_url = format!(
             "https://api.vk.ru/method/wall.get?domain=fenixcraft&count=6&access_token={}&v=5.199",
@@ -423,7 +240,6 @@ async fn get_vk_news() -> serde_json::Value {
         }
     }
 
-    // 2. Прямой парсинг публичной стены https://vk.ru/fenixcraft (работает без токена!)
     for url in ["https://m.vk.ru/fenixcraft", "https://vk.ru/fenixcraft"] {
         if let Ok(resp) = client.get(url).header("Accept-Language", "ru-RU,ru;q=0.9").send().await {
             if let Ok(html) = resp.text().await {
@@ -443,7 +259,6 @@ async fn get_vk_news() -> serde_json::Value {
                                 continue;
                             }
 
-                            // Ищем прикрепленную картинку поста, если есть в блоке
                             let mut img_url = "https://images.unsplash.com/photo-1607513746994-51f730a44832?w=600&q=80".to_string();
                             let search_area = &rest[..rest.len().min(4500)];
                             for prefix in ["https://sun", "https://pp.userapi.com"] {
@@ -495,7 +310,6 @@ async fn get_vk_news() -> serde_json::Value {
     serde_json::json!({ "success": false })
 }
 
-// --- ПОИСК ИЛИ АВТОМАТИЧЕСКОЕ СКАЧИВАНИЕ PORTABLE JAVA 21 (ADOPTIUM) ---
 fn find_java_binary_in_dir(dir: &PathBuf, target_name: &str) -> Option<PathBuf> {
     if let Ok(entries) = fs::read_dir(dir) {
         for entry in entries.flatten() {
