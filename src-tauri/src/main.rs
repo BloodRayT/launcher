@@ -1,7 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::net::TcpStream;
@@ -204,6 +203,147 @@ async fn get_vk_news() -> serde_json::Value {
     serde_json::json!({ "success": false })
 }
 
+// --- ПОИСК ИЛИ АВТОМАТИЧЕСКОЕ СКАЧИВАНИЕ PORTABLE JAVA 21 (ADOPTIUM) ---
+fn find_java_binary_in_dir(dir: &PathBuf, target_name: &str) -> Option<PathBuf> {
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let p = entry.path();
+            if p.is_dir() {
+                let candidate = p.join("bin").join(target_name);
+                if candidate.exists() {
+                    return Some(candidate);
+                }
+                let mac_candidate = p.join("Contents").join("Home").join("bin").join(target_name);
+                if mac_candidate.exists() {
+                    return Some(mac_candidate);
+                }
+                if let Some(sub) = find_java_binary_in_dir(&p, target_name) {
+                    return Some(sub);
+                }
+            }
+        }
+    }
+    None
+}
+
+async fn ensure_java_21(app: &AppHandle, custom_path: &str) -> Result<String, String> {
+    // 1. Если игрок сам указал путь к Java в настройках
+    if !custom_path.trim().is_empty() {
+        let p = PathBuf::from(custom_path.trim());
+        if p.exists() {
+            return Ok(custom_path.trim().to_string());
+        }
+    }
+
+    let bin_name = if cfg!(windows) { "javaw.exe" } else { "java" };
+    let runtime_dir = get_game_dir().join("runtime").join("java-21");
+
+    // 2. Если портативная Java 21 уже была скачана ранее в .fenixcraft/runtime/java-21
+    if let Some(found) = find_java_binary_in_dir(&runtime_dir, bin_name) {
+        return Ok(found.to_string_lossy().to_string());
+    }
+
+    // 3. Проверяем, есть ли в системе установленная Java
+    if let Ok(out) = Command::new("java").arg("-version").output() {
+        if out.status.success() {
+            return Ok(bin_name.to_string());
+        }
+    }
+
+    // 4. Авто-скачивание портативной Java 21 с официального сервера Eclipse Adoptium
+    let _ = app.emit(
+        "game:log",
+        "[Java 21 Auto-Installer] На ПК не найдена Java. Скачиваем портативную Java 21 (Adoptium)...",
+    );
+    let _ = app.emit(
+        "game:progress",
+        serde_json::json!({
+            "type": "Скачивание Java 21 (Adoptium)",
+            "task": 15,
+            "total": 100
+        }),
+    );
+
+    fs::create_dir_all(&runtime_dir).map_err(|e| e.to_string())?;
+
+    let os_name = if cfg!(target_os = "windows") {
+        "windows"
+    } else if cfg!(target_os = "macos") {
+        "mac"
+    } else {
+        "linux"
+    };
+
+    let arch_name = if cfg!(target_arch = "aarch64") {
+        "aarch64"
+    } else {
+        "x64"
+    };
+
+    let ext = if cfg!(target_os = "windows") { "zip" } else { "tar.gz" };
+    let archive_path = runtime_dir.join(format!("adoptium-jre21.{}", ext));
+
+    let adoptium_url = format!(
+        "https://api.adoptium.net/v3/binary/latest/21/ga/{}/{}/jre/hotspot/normal/eclipse",
+        os_name, arch_name
+    );
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(300))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let resp = client
+        .get(&adoptium_url)
+        .send()
+        .await
+        .map_err(|e| format!("Ошибка загрузки Java 21: {}", e))?;
+
+    let bytes = resp.bytes().await.map_err(|e| e.to_string())?;
+    fs::write(&archive_path, &bytes).map_err(|e| e.to_string())?;
+
+    let _ = app.emit(
+        "game:progress",
+        serde_json::json!({
+            "type": "Распаковка Java 21...",
+            "task": 75,
+            "total": 100
+        }),
+    );
+    let _ = app.emit("game:log", "[Java 21 Auto-Installer] Распаковка архива среды выполнения...");
+
+    // Нативная распаковка встроенным системным tar (работает в Windows 10/11, Linux и macOS)
+    let status = Command::new("tar")
+        .arg("-xf")
+        .arg(&archive_path)
+        .arg("-C")
+        .arg(&runtime_dir)
+        .status()
+        .map_err(|e| format!("Ошибка распаковки Java 21: {}", e))?;
+
+    let _ = fs::remove_file(&archive_path);
+
+    if !status.success() {
+        return Err("Не удалось распаковать архив Java 21".to_string());
+    }
+
+    if let Some(found) = find_java_binary_in_dir(&runtime_dir, bin_name) {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if let Ok(meta) = fs::metadata(&found) {
+                let mut perms = meta.permissions();
+                perms.set_mode(0o755);
+                let _ = fs::set_permissions(&found, perms);
+            }
+        }
+        let _ = app.emit("game:log", "[Java 21 Auto-Installer] Портативная Java 21 успешно установлена!");
+        return Ok(found.to_string_lossy().to_string());
+    }
+
+    Err("Исполняемый файл Java 21 не найден после распаковки".to_string())
+}
+
 // --- ПРЯМАЯ ЗАГРУЗКА ВАНИЛЬНОЙ ВЕРСИИ С ОФИЦИАЛЬНЫХ СЕРВЕРОВ MOJANG БЕЗ БЭКЕНДА ---
 async fn download_vanilla_from_mojang(
     app: &AppHandle,
@@ -269,7 +409,6 @@ async fn download_vanilla_from_mojang(
     fs::create_dir_all(&libs_dir).map_err(|e| e.to_string())?;
     fs::create_dir_all(&assets_indexes_dir).map_err(|e| e.to_string())?;
 
-    // 1. Скачиваем индекс ассетов
     let asset_id = ver_json["assetIndex"]["id"].as_str().unwrap_or("1.21").to_string();
     if let Some(asset_url) = ver_json["assetIndex"]["url"].as_str() {
         let idx_path = assets_indexes_dir.join(format!("{}.json", asset_id));
@@ -282,7 +421,6 @@ async fn download_vanilla_from_mojang(
         }
     }
 
-    // 2. Собираем список всех библиотек для текущей ОС + client.jar
     let current_os = if cfg!(target_os = "windows") {
         "windows"
     } else if cfg!(target_os = "macos") {
@@ -376,38 +514,29 @@ async fn launch_game(app: AppHandle) -> serde_json::Value {
     tokio::spawn(async move {
         let _ = app_clone.emit(
             "game:log",
-            format!("[Launcher] Подготовка к запуску профиля: {}...", config.selected_version),
+            format!("[FenixCraft v1.0] Подготовка к запуску профиля: {}...", config.selected_version),
         );
 
-        let is_vanilla = config.selected_version.contains("vanilla") || config.selected_version.starts_with("latest");
-
-        let (instance_dir, classpath_jars, mc_ver, asset_id) = if is_vanilla {
-            match download_vanilla_from_mojang(&app_clone, &config.selected_version).await {
-                Ok(res) => res,
-                Err(e) => {
-                    let _ = app_clone.emit("game:log", format!("[ERROR] Ошибка скачивания Vanilla: {}", e));
-                    let _ = app_clone.emit("game:closed", ());
-                    return;
-                }
-            }
-        } else {
-            // Загрузка модовой сборки с вашего сервера (при наличии манифеста) или запуск через ядро Mojang
-            let _ = app_clone.emit("game:log", "[Guard-Rust] Проверка SHA-256 модовой сборки и базовых библиотек...");
-            match download_vanilla_from_mojang(&app_clone, &config.selected_version).await {
-                Ok(res) => res,
-                Err(e) => {
-                    let _ = app_clone.emit("game:log", format!("[ERROR] {}", e));
-                    let _ = app_clone.emit("game:closed", ());
-                    return;
-                }
+        // 1. Проверяем или автоматически скачиваем Java 21 (Adoptium)
+        let java_bin = match ensure_java_21(&app_clone, &config.java_path).await {
+            Ok(bin) => bin,
+            Err(e) => {
+                let _ = app_clone.emit("game:log", format!("[ERROR] Ошибка подготовки Java 21: {}", e));
+                let _ = app_clone.emit("game:closed", ());
+                return;
             }
         };
 
-        let java_bin = if !config.java_path.trim().is_empty() && PathBuf::from(&config.java_path).exists() {
-            config.java_path.clone()
-        } else {
-            "java".to_string()
-        };
+        // 2. Скачиваем клиент и библиотеки
+        let (instance_dir, classpath_jars, mc_ver, asset_id) =
+            match download_vanilla_from_mojang(&app_clone, &config.selected_version).await {
+                Ok(res) => res,
+                Err(e) => {
+                    let _ = app_clone.emit("game:log", format!("[ERROR] Ошибка скачивания клиента: {}", e));
+                    let _ = app_clone.emit("game:closed", ());
+                    return;
+                }
+            };
 
         let offline_uuid = uuid::Uuid::new_v3(
             &uuid::Uuid::NAMESPACE_OID,
@@ -459,7 +588,7 @@ async fn launch_game(app: AppHandle) -> serde_json::Value {
 
         let _ = app_clone.emit(
             "game:log",
-            format!("[Launcher] Старт клиента Minecraft -> Сервер: {}", config.selected_server),
+            format!("[FenixCraft v1.0] Запуск JVM ({}) -> Сервер: {}", java_bin, config.selected_server),
         );
 
         match Command::new(&java_bin)
@@ -471,16 +600,10 @@ async fn launch_game(app: AppHandle) -> serde_json::Value {
         {
             Ok(mut proc) => {
                 let status = proc.wait();
-                let _ = app_clone.emit("game:log", format!("[Launcher] Игра закрыта ({:?})", status));
+                let _ = app_clone.emit("game:log", format!("[FenixCraft v1.0] Игра закрыта ({:?})", status));
             }
             Err(err) => {
-                let _ = app_clone.emit(
-                    "game:log",
-                    format!(
-                        "[ERROR] Не удалось запустить Java 21 ({}). Установите Java 21 (Adoptium) или укажите путь в Настройках!",
-                        err
-                    ),
-                );
+                let _ = app_clone.emit("game:log", format!("[ERROR] Ошибка старта JVM: {}", err));
             }
         }
 

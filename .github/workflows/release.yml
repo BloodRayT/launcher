@@ -1,4 +1,4 @@
-name: Build FenixCraft Launcher (Tauri v2)
+name: Build FenixCraft Launcher v1.0 (Tauri v2)
 
 on:
   push:
@@ -38,9 +38,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: v2.6.0
-          releaseName: 'FenixCraft Launcher v2.6.0 (Ultra-Light)'
-          releaseBody: 'Готовые сборки лаунчера FenixCraft под Windows (.exe/.msi), Linux (.AppImage/.deb) и macOS (.dmg).'
+          tagName: v1.0
+          releaseName: 'FenixCraft Launcher v1.0'
+          releaseBody: 'Официальный релиз FenixCraft Launcher v1.0 (Автозагрузка Java 21 Adoptium, прямая загрузка Vanilla с Mojang, магазин привилегий VIP/Creative/Moder/Admin/Money).'
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
