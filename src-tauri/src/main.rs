@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::io::{Read, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
@@ -30,7 +30,7 @@ struct LauncherConfig {
 impl Default for LauncherConfig {
     fn default() -> Self {
         Self {
-            username: "AndreyGusev".to_string(),
+            username: "BloodRayT".to_string(),
             account_type: "offline".to_string(),
             ram: 4096,
             width: 1920,
@@ -310,6 +310,7 @@ async fn get_vk_news() -> serde_json::Value {
     serde_json::json!({ "success": false })
 }
 
+// Ищем java.exe (а не javaw.exe), чтобы перехватывать полный лог ошибок и stdout
 fn find_java_binary_in_dir(dir: &PathBuf, target_name: &str) -> Option<PathBuf> {
     if let Ok(entries) = fs::read_dir(dir) {
         for entry in entries.flatten() {
@@ -332,6 +333,24 @@ fn find_java_binary_in_dir(dir: &PathBuf, target_name: &str) -> Option<PathBuf> 
     None
 }
 
+// Проверяем, что установленная в системе Java имеет версию >= 21 (иначе Minecraft 1.21+ падает с -1)
+fn is_system_java_21_or_newer() -> bool {
+    if let Ok(out) = Command::new("java").arg("-version").output() {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let combined = format!("{}\n{}", stderr, stdout);
+        for ver in 21..=30 {
+            let pat1 = format!("version \"{}", ver);
+            let pat2 = format!("openjdk {}", ver);
+            let pat3 = format!("java {}", ver);
+            if combined.contains(&pat1) || combined.contains(&pat2) || combined.contains(&pat3) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 async fn ensure_java_21(app: &AppHandle, custom_path: &str) -> Result<String, String> {
     if !custom_path.trim().is_empty() {
         let p = PathBuf::from(custom_path.trim());
@@ -340,22 +359,21 @@ async fn ensure_java_21(app: &AppHandle, custom_path: &str) -> Result<String, St
         }
     }
 
-    let bin_name = if cfg!(windows) { "javaw.exe" } else { "java" };
+    // Используем java.exe вместо javaw.exe, чтобы видеть все логи в консоли лаунчера
+    let bin_name = if cfg!(windows) { "java.exe" } else { "java" };
     let runtime_dir = get_game_dir().join("runtime").join("java-21");
 
     if let Some(found) = find_java_binary_in_dir(&runtime_dir, bin_name) {
         return Ok(found.to_string_lossy().to_string());
     }
 
-    if let Ok(out) = Command::new("java").arg("-version").output() {
-        if out.status.success() {
-            return Ok(bin_name.to_string());
-        }
+    if is_system_java_21_or_newer() {
+        return Ok("java".to_string());
     }
 
     let _ = app.emit(
         "game:log",
-        "[Java 21 Auto-Installer] На ПК не найдена Java. Скачиваем портативную Java 21 (Adoptium)...",
+        "[Java 21 Auto-Installer] Требуется Java 21+ (в системе не найдена или устарела). Скачиваем Adoptium Java 21...",
     );
     let _ = app.emit(
         "game:progress",
@@ -437,6 +455,7 @@ async fn ensure_java_21(app: &AppHandle, custom_path: &str) -> Result<String, St
                 let _ = fs::set_permissions(&found, perms);
             }
         }
+        let _ = app.emit("game:log", "[Java 21 Auto-Installer] Портативная Java 21 успешно установлена!");
         return Ok(found.to_string_lossy().to_string());
     }
 
@@ -446,7 +465,7 @@ async fn ensure_java_21(app: &AppHandle, custom_path: &str) -> Result<String, St
 async fn download_vanilla_from_mojang(
     app: &AppHandle,
     requested_version: &str,
-) -> Result<(PathBuf, Vec<PathBuf>, String, String), String> {
+) -> Result<(PathBuf, Vec<PathBuf>, String, String, String), String> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(60))
         .build()
@@ -494,13 +513,22 @@ async fn download_vanilla_from_mojang(
         .await
         .map_err(|e| e.to_string())?;
 
+    let main_class = ver_json["mainClass"]
+        .as_str()
+        .unwrap_or("net.minecraft.client.main.Main")
+        .to_string();
+
     let game_dir = get_game_dir();
     let instance_dir = game_dir.join("instances").join(format!("vanilla-{}", actual_ver));
+    let natives_dir = instance_dir.join("natives");
     let libs_dir = game_dir.join("libraries");
     let assets_indexes_dir = game_dir.join("assets").join("indexes");
+    let assets_objects_dir = game_dir.join("assets").join("objects");
     fs::create_dir_all(&instance_dir).map_err(|e| e.to_string())?;
+    fs::create_dir_all(&natives_dir).map_err(|e| e.to_string())?;
     fs::create_dir_all(&libs_dir).map_err(|e| e.to_string())?;
     fs::create_dir_all(&assets_indexes_dir).map_err(|e| e.to_string())?;
+    fs::create_dir_all(&assets_objects_dir).map_err(|e| e.to_string())?;
 
     let asset_id = ver_json["assetIndex"]["id"].as_str().unwrap_or("1.21").to_string();
     if let Some(asset_url) = ver_json["assetIndex"]["url"].as_str() {
@@ -596,7 +624,7 @@ async fn download_vanilla_from_mojang(
         }),
     );
 
-    Ok((instance_dir, classpath_jars, actual_ver, asset_id))
+    Ok((instance_dir, classpath_jars, actual_ver, asset_id, main_class))
 }
 
 #[tauri::command]
@@ -619,7 +647,7 @@ async fn launch_game(app: AppHandle) -> serde_json::Value {
             }
         };
 
-        let (instance_dir, classpath_jars, mc_ver, asset_id) =
+        let (instance_dir, classpath_jars, mc_ver, asset_id, main_class) =
             match download_vanilla_from_mojang(&app_clone, &config.selected_version).await {
                 Ok(res) => res,
                 Err(e) => {
@@ -638,23 +666,39 @@ async fn launch_game(app: AppHandle) -> serde_json::Value {
         let cp_sep = if cfg!(windows) { ";" } else { ":" };
         let cp_string = classpath_jars
             .iter()
-            .map(|p| p.to_string_lossy().to_string())
+            .map(|p| p.to_string_lossy().replace('\\', "/"))
             .collect::<Vec<_>>()
             .join(cp_sep);
 
-        let mut args: Vec<String> = Vec::new();
-        args.push(format!("-Xmx{}M", config.ram));
-        args.push("-Xms2048M".to_string());
+        let natives_dir = instance_dir.join("natives").to_string_lossy().replace('\\', "/");
+
+        // Записываем длинный Classpath и JVM флаги в @jvm_args.txt, чтобы обойти лимит длины строки Windows (причина ошибки 4294967295)
+        let mut jvm_file_lines: Vec<String> = Vec::new();
+        jvm_file_lines.push(format!("-Xmx{}M", config.ram));
+        jvm_file_lines.push("-Xms1024M".to_string());
+        jvm_file_lines.push(format!("-Djava.library.path=\"{}\"", natives_dir));
+        jvm_file_lines.push("-Dminecraft.launcher.brand=FenixCraft".to_string());
+        jvm_file_lines.push("-Dminecraft.launcher.version=1.0".to_string());
 
         for custom_arg in config.jvm_args.split_whitespace() {
-            args.push(custom_arg.to_string());
+            jvm_file_lines.push(custom_arg.to_string());
         }
 
-        args.push("-cp".to_string());
-        args.push(cp_string);
-        args.push("net.minecraft.client.main.Main".to_string());
+        jvm_file_lines.push("-cp".to_string());
+        jvm_file_lines.push(format!("\"{}\"", cp_string));
 
-        args.extend_from_slice(&[
+        let argfile_path = instance_dir.join("jvm_args.txt");
+        if let Err(e) = fs::write(&argfile_path, jvm_file_lines.join("\n")) {
+            let _ = app_clone.emit("game:log", format!("[ERROR] Не удалось создать jvm_args.txt: {}", e));
+            let _ = app_clone.emit("game:closed", ());
+            return;
+        }
+
+        let mut cmd_args: Vec<String> = Vec::new();
+        cmd_args.push(format!("@{}", argfile_path.to_string_lossy()));
+        cmd_args.push(main_class);
+
+        cmd_args.extend_from_slice(&[
             "--username".to_string(),
             config.username.clone(),
             "--version".to_string(),
@@ -669,6 +713,10 @@ async fn launch_game(app: AppHandle) -> serde_json::Value {
             offline_uuid,
             "--accessToken".to_string(),
             "0".to_string(),
+            "--userType".to_string(),
+            "legacy".to_string(),
+            "--versionType".to_string(),
+            "FenixCraft-1.0".to_string(),
             "--width".to_string(),
             config.width.to_string(),
             "--height".to_string(),
@@ -682,14 +730,40 @@ async fn launch_game(app: AppHandle) -> serde_json::Value {
             format!("[FenixCraft v1.0] Запуск JVM ({}) -> Сервер: {}", java_bin, config.selected_server),
         );
 
-        match Command::new(&java_bin)
-            .args(&args)
+        let mut cmd = Command::new(&java_bin);
+        cmd.args(&cmd_args)
             .current_dir(&instance_dir)
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
+            .stderr(Stdio::piped());
+
+        #[cfg(target_os = "windows")]
         {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW — скрываем черное консольное окно Windows
+        }
+
+        match cmd.spawn() {
             Ok(mut proc) => {
+                // Читаем stdout и stderr игры в реальном времени в консоль лаунчера
+                if let Some(stdout) = proc.stdout.take() {
+                    let app_out = app_clone.clone();
+                    std::thread::spawn(move || {
+                        let reader = BufReader::new(stdout);
+                        for line in reader.lines().map_while(Result::ok) {
+                            let _ = app_out.emit("game:log", format!("[MC] {}", line));
+                        }
+                    });
+                }
+                if let Some(stderr) = proc.stderr.take() {
+                    let app_err = app_clone.clone();
+                    std::thread::spawn(move || {
+                        let reader = BufReader::new(stderr);
+                        for line in reader.lines().map_while(Result::ok) {
+                            let _ = app_err.emit("game:log", format!("[JVM-ERR] {}", line));
+                        }
+                    });
+                }
+
                 let status = proc.wait();
                 let _ = app_clone.emit("game:log", format!("[FenixCraft v1.0] Игра закрыта ({:?})", status));
             }
