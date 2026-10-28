@@ -1703,6 +1703,54 @@ async fn download_vanilla_to_root(
     Ok((root_dir, classpath_jars, actual_ver, asset_id, main_class))
 }
 
+
+// Создает преднастроенный options.txt (русский язык, авто-подключение текстурпаков) и включает шейдеры Iris при первом запуске
+fn ensure_default_game_options(root_dir: &PathBuf) {
+    let options_path = root_dir.join("options.txt");
+    if !options_path.exists() {
+        let mut packs = vec!["\"vanilla\"".to_string(), "\"mod_resources\"".to_string()];
+        let rp_dir = root_dir.join("resourcepacks");
+        if let Ok(entries) = fs::read_dir(&rp_dir) {
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if name.ends_with(".zip") {
+                    packs.push(format!("\"file/{}\"", name));
+                }
+            }
+        }
+        let default_opts = format!(
+            "lang:ru_ru\nguiScale:0\nmaxFps:260\nenableVsync:false\nrenderDistance:12\nsimulationDistance:10\ngamma:0.5\ntutorialStep:none\njoinedFirstServer:true\nresourcePacks:[{}]\n",
+            packs.join(",")
+        );
+        let _ = fs::write(&options_path, default_opts);
+    }
+
+    // Автоматически включаем поддержку шейдеров в config/iris.properties, если в shaderpacks/ лежит шейдерпак
+    let config_dir = root_dir.join("config");
+    let _ = fs::create_dir_all(&config_dir);
+    let iris_props = config_dir.join("iris.properties");
+    if !iris_props.exists() {
+        let mut first_shader = String::new();
+        let sp_dir = root_dir.join("shaderpacks");
+        let _ = fs::create_dir_all(&sp_dir);
+        if let Ok(entries) = fs::read_dir(&sp_dir) {
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if name.ends_with(".zip") {
+                    first_shader = name;
+                    break;
+                }
+            }
+        }
+        let iris_content = if !first_shader.is_empty() {
+            format!("enableShaders=true\nshaderPack={}\n", first_shader)
+        } else {
+            "enableShaders=true\n".to_string()
+        };
+        let _ = fs::write(&iris_props, iris_content);
+    }
+}
+
 fn spawn_and_stream_jvm(app: &AppHandle, java_bin: &str, args: &[String], work_dir: &PathBuf) {
     let mut cmd = Command::new(java_bin);
     cmd.args(args)
@@ -1771,6 +1819,7 @@ async fn launch_game(app: AppHandle) -> serde_json::Value {
 
         // 1. Синхронизируем моды, текстуры (resourcepacks) и конфиги с вашим серверным Бэкендом
         sync_with_custom_backend(&app_clone, &root_dir, &config.selected_version, &config.backend_url).await;
+        ensure_default_game_options(&root_dir);
 
         // 2. Если выбран NeoForge или Iris + NeoForge
         if config.selected_version.contains("neoforge") {

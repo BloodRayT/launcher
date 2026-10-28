@@ -1,0 +1,8 @@
+lang:ru_ru
+guiScale:0
+maxFps:260
+enableVsync:false
+renderDistance:12
+tutorialStep:none
+joinedFirstServer:true
+resourcePacks:["vanilla","mod_resources"]
