@@ -66,6 +66,42 @@ struct ServerStatus {
     max_players: u32,
 }
 
+
+// Нативная распаковка ZIP/JAR архивов внутри процесса Rust (без открытия консольных окон tar.exe!)
+fn extract_zip_archive(archive_path: &PathBuf, target_dir: &PathBuf, skip_meta_inf: bool) -> Result<(), String> {
+    let file = fs::File::open(archive_path).map_err(|e| e.to_string())?;
+    let mut archive = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
+
+    for i in 0..archive.len() {
+        let mut entry = match archive.by_index(i) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        let outpath = match entry.enclosed_name() {
+            Some(path) => path.to_owned(),
+            None => continue,
+        };
+
+        let out_str = outpath.to_string_lossy();
+        if skip_meta_inf && (out_str.starts_with("META-INF") || out_str.ends_with(".git") || out_str.ends_with(".sha1")) {
+            continue;
+        }
+
+        let full_out = target_dir.join(&outpath);
+        if entry.name().ends_with('/') {
+            let _ = fs::create_dir_all(&full_out);
+        } else {
+            if let Some(p) = full_out.parent() {
+                let _ = fs::create_dir_all(p);
+            }
+            if let Ok(mut outfile) = fs::File::create(&full_out) {
+                let _ = std::io::copy(&mut entry, &mut outfile);
+            }
+        }
+    }
+    Ok(())
+}
+
 fn get_game_dir() -> PathBuf {
     let mut dir = dirs::config_dir()
         .or_else(dirs::data_dir)
@@ -487,18 +523,25 @@ async fn ensure_java_21(app: &AppHandle, custom_path: &str) -> Result<String, St
 // --- МНОГОПОТОЧНОЕ СКАЧИВАНИЕ ВСЕХ АССЕТОВ (ИКОНОК, ШРИФТОВ, ЗВУКОВ) С CDN MOJANG ---
 async fn ensure_all_assets_downloaded(
     app: &AppHandle,
-    client: &reqwest::Client,
+    _client: &reqwest::Client,
     root_dir: &PathBuf,
     asset_id: &str,
     asset_url_opt: Option<&str>,
 ) -> Result<(), String> {
+    let client = reqwest::Client::builder()
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+        .pool_max_idle_per_host(16)
+        .timeout(Duration::from_secs(45))
+        .build()
+        .map_err(|e| e.to_string())?;
+
     let indexes_dir = root_dir.join("assets").join("indexes");
     let objects_dir = root_dir.join("assets").join("objects");
     fs::create_dir_all(&indexes_dir).map_err(|e| e.to_string())?;
     fs::create_dir_all(&objects_dir).map_err(|e| e.to_string())?;
 
     let idx_path = indexes_dir.join(format!("{}.json", asset_id));
-    if !idx_path.exists() {
+    if !idx_path.exists() || fs::metadata(&idx_path).map(|m| m.len() == 0).unwrap_or(true) {
         if let Some(url) = asset_url_opt {
             let resp = client.get(url).send().await.map_err(|e| e.to_string())?;
             let bytes = resp.bytes().await.map_err(|e| e.to_string())?;
@@ -514,55 +557,65 @@ async fn ensure_all_assets_downloaded(
     let idx_json: serde_json::Value = serde_json::from_str(&idx_str).map_err(|e| e.to_string())?;
 
     let official_objects_dir = get_official_mc_dir().join("assets").join("objects");
-    let mut missing_hashes: Vec<String> = Vec::new();
+    let mut missing_items: Vec<(String, u64)> = Vec::new();
+    let mut seen_hashes: HashSet<String> = HashSet::new();
 
     if let Some(objects) = idx_json["objects"].as_object() {
         for (_name, obj) in objects {
             if let Some(hash) = obj["hash"].as_str() {
-                if hash.len() >= 2 {
+                let expected_size = obj["size"].as_u64().unwrap_or(0);
+                if hash.len() >= 2 && seen_hashes.insert(hash.to_string()) {
                     let prefix = &hash[0..2];
                     let target_file = objects_dir.join(prefix).join(hash);
-                    if !target_file.exists() {
-                        // Если этот файл уже есть в стандартном .minecraft — копируем его мгновенно без скачивания
+
+                    let is_valid = if let Ok(meta) = fs::metadata(&target_file) {
+                        meta.len() > 0 && (expected_size == 0 || meta.len() == expected_size)
+                    } else {
+                        false
+                    };
+
+                    if !is_valid {
                         let fallback_file = official_objects_dir.join(prefix).join(hash);
-                        if fallback_file.exists() {
-                            if let Some(p) = target_file.parent() {
-                                let _ = fs::create_dir_all(p);
-                            }
-                            if fs::copy(&fallback_file, &target_file).is_ok() {
-                                continue;
+                        if let Ok(f_meta) = fs::metadata(&fallback_file) {
+                            if f_meta.len() > 0 && (expected_size == 0 || f_meta.len() == expected_size) {
+                                if let Some(p) = target_file.parent() {
+                                    let _ = fs::create_dir_all(p);
+                                }
+                                if fs::copy(&fallback_file, &target_file).is_ok() {
+                                    continue;
+                                }
                             }
                         }
-                        missing_hashes.push(hash.to_string());
+                        missing_items.push((hash.to_string(), expected_size));
                     }
                 }
             }
         }
     }
 
-    if missing_hashes.is_empty() {
+    if missing_items.is_empty() {
         return Ok(());
     }
 
-    let total = missing_hashes.len();
+    let total = missing_items.len();
     let _ = app.emit(
         "game:log",
-        format!(
-            "[Mojang Assets] Докачиваем {} игровых ресурсов (шрифты, иконки, звуки) в 32 потока...",
-            total
-        ),
+        format!("[Mojang Assets] Загрузка {} недостающих файлов ресурсов...", total),
     );
 
-    let sem = Arc::new(tokio::sync::Semaphore::new(32));
+    // Используем 16 стабильных потоков с проверкой размера и до 5 попыток на каждый файл
+    let sem = Arc::new(tokio::sync::Semaphore::new(16));
     let done_counter = Arc::new(AtomicUsize::new(0));
+    let failed_counter = Arc::new(AtomicUsize::new(0));
     let mut handles = Vec::with_capacity(total);
 
-    for hash in missing_hashes {
+    for (hash, expected_size) in missing_items {
         let permit_pool = sem.clone();
         let client_clone = client.clone();
         let objects_dir_clone = objects_dir.clone();
         let app_clone = app.clone();
         let counter_clone = done_counter.clone();
+        let fail_clone = failed_counter.clone();
 
         let handle = tokio::spawn(async move {
             let _permit = permit_pool.acquire().await;
@@ -572,23 +625,33 @@ async fn ensure_all_assets_downloaded(
             let dest = sub_dir.join(&hash);
             let url = format!("https://resources.download.minecraft.net/{}/{}", prefix, hash);
 
-            for _attempt in 0..3 {
+            let mut ok = false;
+            for attempt in 0..5 {
                 if let Ok(resp) = client_clone.get(&url).send().await {
                     if resp.status().is_success() {
                         if let Ok(bytes) = resp.bytes().await {
-                            let _ = fs::write(&dest, &bytes);
-                            break;
+                            if expected_size == 0 || bytes.len() as u64 == expected_size {
+                                if fs::write(&dest, &bytes).is_ok() {
+                                    ok = true;
+                                    break;
+                                }
+                            }
                         }
                     }
                 }
+                tokio::time::sleep(Duration::from_millis(150 * (attempt + 1))).await;
+            }
+
+            if !ok {
+                fail_clone.fetch_add(1, Ordering::Relaxed);
             }
 
             let current = counter_clone.fetch_add(1, Ordering::Relaxed) + 1;
-            if current % 25 == 0 || current == total {
+            if current % 20 == 0 || current == total {
                 let _ = app_clone.emit(
                     "game:progress",
                     serde_json::json!({
-                        "type": "Загрузка игровых ассетов (Mojang)",
+                        "type": "Загрузка ресурсов Minecraft",
                         "task": current,
                         "total": total
                     }),
@@ -602,7 +665,15 @@ async fn ensure_all_assets_downloaded(
         let _ = h.await;
     }
 
-    let _ = app.emit("game:log", "[Mojang Assets] Все ресурсы успешно загружены!");
+    let failed = failed_counter.load(Ordering::Relaxed);
+    if failed > 0 {
+        return Err(format!(
+            "Не удалось докачать {} файлов ресурсов из-за обрыва сети. Нажмите «Играть» еще раз — лаунчер докачает оставшиеся файлы!",
+            failed
+        ));
+    }
+
+    let _ = app.emit("game:log", "[Mojang Assets] Все 100% игровых ресурсов успешно проверены и загружены!");
     Ok(())
 }
 
@@ -1017,12 +1088,7 @@ async fn download_vanilla_to_root(
     for jar in &classpath_jars {
         let name = jar.file_name().unwrap_or_default().to_string_lossy();
         if name.contains("natives") && jar.exists() {
-            let _ = Command::new("tar")
-                .arg("-xf")
-                .arg(jar)
-                .arg("-C")
-                .arg(&natives_dir)
-                .status();
+            let _ = extract_zip_archive(jar, &natives_dir, true);
         }
     }
 
