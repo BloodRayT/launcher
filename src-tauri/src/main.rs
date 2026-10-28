@@ -1009,29 +1009,75 @@ fn find_java_binary_in_dir(dir: &PathBuf, target_name: &str) -> Option<PathBuf> 
     None
 }
 
-fn is_system_java_21_or_newer() -> bool {
+fn is_system_java_exact_major(required_major: u32) -> bool {
     if let Ok(out) = Command::new("java").arg("-version").output() {
         let combined = format!(
             "{}\n{}",
             String::from_utf8_lossy(&out.stderr),
             String::from_utf8_lossy(&out.stdout)
         );
-        for ver in 21..=30 {
-            if combined.contains(&format!("version \"{}", ver))
-                || combined.contains(&format!("openjdk {}", ver))
-                || combined.contains(&format!("java {}", ver))
-            {
-                return true;
-            }
+        let p1 = format!("version \"{}.", required_major);
+        let p2 = format!("version \"{}\"", required_major);
+        let p3 = format!("openjdk {}.", required_major);
+        let p4 = format!("openjdk {}", required_major);
+        let p5 = format!("java {}.", required_major);
+        if combined.contains(&p1)
+            || combined.contains(&p2)
+            || combined.contains(&p3)
+            || combined.contains(&p4)
+            || combined.contains(&p5)
+        {
+            return true;
         }
     }
     false
 }
 
-async fn ensure_java_21(app: &AppHandle, custom_path: &str) -> Result<String, String> {
+fn detect_required_java_version(mc_version_id: &str, ver_json_opt: Option<&serde_json::Value>) -> u32 {
+    if let Some(vj) = ver_json_opt {
+        if let Some(major) = vj["javaVersion"]["majorVersion"].as_u64() {
+            if major >= 25 {
+                return 25;
+            }
+            if major == 21 {
+                return 21;
+            }
+        }
+    }
+
+    let clean = mc_version_id.trim().to_lowercase();
+    if let Some(first_num_str) = clean.split(|c: char| !c.is_ascii_digit()).find(|s| !s.is_empty()) {
+        if let Ok(first_num) = first_num_str.parse::<u32>() {
+            if first_num >= 26 {
+                return 25;
+            }
+        }
+    }
+
+    21
+}
+
+async fn ensure_java_runtime(
+    app: &AppHandle,
+    custom_path: &str,
+    required_major: u32,
+    mc_version_label: &str,
+) -> Result<String, String> {
+    let _ = app.emit(
+        "game:log",
+        format!(
+            "[Java Scanner] Версия Minecraft '{}' -> Рекомендуемая среда выполнения: Java {}",
+            mc_version_label, required_major
+        ),
+    );
+
     if !custom_path.trim().is_empty() {
         let p = PathBuf::from(custom_path.trim());
         if p.exists() {
+            let _ = app.emit(
+                "game:log",
+                format!("[Java Scanner] Используется пользовательский путь Java: {}", custom_path.trim()),
+            );
             return Ok(custom_path.trim().to_string());
         }
     }
@@ -1039,26 +1085,39 @@ async fn ensure_java_21(app: &AppHandle, custom_path: &str) -> Result<String, St
     let bin_name = if cfg!(windows) { "java.exe" } else { "java" };
     let root_dir = get_game_dir();
 
-    let existing_jdk21 = root_dir.join("java").join("jdk-21").join("bin").join(bin_name);
-    if existing_jdk21.exists() {
-        return Ok(existing_jdk21.to_string_lossy().to_string());
-    }
-    if let Some(found) = find_java_binary_in_dir(&root_dir.join("java"), bin_name) {
-        return Ok(found.to_string_lossy().to_string());
+    if required_major == 21 {
+        let existing_jdk21 = root_dir.join("java").join("jdk-21").join("bin").join(bin_name);
+        if existing_jdk21.exists() {
+            let path_str = existing_jdk21.to_string_lossy().to_string();
+            let _ = app.emit("game:log", format!("[Java Scanner] Найдена локальная Java 21: {}", path_str));
+            return Ok(path_str);
+        }
     }
 
-    let runtime_dir = root_dir.join("runtime").join("java-21");
+    let runtime_dir = root_dir.join("runtime").join(format!("java-{}", required_major));
     if let Some(found) = find_java_binary_in_dir(&runtime_dir, bin_name) {
-        return Ok(found.to_string_lossy().to_string());
+        let path_str = found.to_string_lossy().to_string();
+        let _ = app.emit(
+            "game:log",
+            format!("[Java Scanner] Найдена портативная Java {}: {}", required_major, path_str),
+        );
+        return Ok(path_str);
     }
 
-    if is_system_java_21_or_newer() {
+    if is_system_java_exact_major(required_major) {
+        let _ = app.emit(
+            "game:log",
+            format!("[Java Scanner] Системная Java точно соответствует версии Java {}.", required_major),
+        );
         return Ok("java".to_string());
     }
 
     let _ = app.emit(
         "game:log",
-        "[Java 21 Auto-Installer] Скачиваем портативную Java 21 (Adoptium)...",
+        format!(
+            "[Java Auto-Installer] Требуемая Java {} не найдена локально. Скачиваем портативную Java {} (Adoptium)...",
+            required_major, required_major
+        ),
     );
     fs::create_dir_all(&runtime_dir).map_err(|e| e.to_string())?;
 
@@ -1071,21 +1130,64 @@ async fn ensure_java_21(app: &AppHandle, custom_path: &str) -> Result<String, St
     };
     let arch_name = if cfg!(target_arch = "aarch64") { "aarch64" } else { "x64" };
     let ext = if cfg!(target_os = "windows") { "zip" } else { "tar.gz" };
-    let archive_path = runtime_dir.join(format!("adoptium-jre21.{}", ext));
-
-    let adoptium_url = format!(
-        "https://api.adoptium.net/v3/binary/latest/21/ga/{}/{}/jre/hotspot/normal/eclipse",
-        os_name, arch_name
-    );
+    let archive_path = runtime_dir.join(format!("adoptium-java{}.{}", required_major, ext));
 
     let client = reqwest::Client::builder()
+        .user_agent("FenixCraftLauncher/1.0")
         .timeout(Duration::from_secs(300))
         .build()
         .map_err(|e| e.to_string())?;
 
-    let resp = client.get(&adoptium_url).send().await.map_err(|e| e.to_string())?;
-    let bytes = resp.bytes().await.map_err(|e| e.to_string())?;
-    fs::write(&archive_path, &bytes).map_err(|e| e.to_string())?;
+    let candidate_urls = [
+        format!(
+            "https://api.adoptium.net/v3/binary/latest/{}/ga/{}/{}/jre/hotspot/normal/eclipse",
+            required_major, os_name, arch_name
+        ),
+        format!(
+            "https://api.adoptium.net/v3/binary/latest/{}/ga/{}/{}/jdk/hotspot/normal/eclipse",
+            required_major, os_name, arch_name
+        ),
+        format!(
+            "https://api.adoptium.net/v3/binary/latest/{}/ea/{}/{}/jdk/hotspot/normal/eclipse",
+            required_major, os_name, arch_name
+        ),
+    ];
+
+    let mut downloaded = false;
+    for (idx, url) in candidate_urls.iter().enumerate() {
+        let _ = app.emit(
+            "game:progress",
+            serde_json::json!({
+                "type": format!("Скачивание портативной Java {} (Adoptium)", required_major),
+                "task": 20 + idx * 15,
+                "total": 100
+            }),
+        );
+        if let Ok(resp) = client.get(url).send().await {
+            if resp.status().is_success() {
+                if let Ok(bytes) = resp.bytes().await {
+                    if bytes.len() > 5_000_000 {
+                        fs::write(&archive_path, &bytes).map_err(|e| e.to_string())?;
+                        downloaded = true;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    if !downloaded {
+        return Err(format!("Не удалось скачать портативную Java {} с серверов Adoptium", required_major));
+    }
+
+    let _ = app.emit(
+        "game:progress",
+        serde_json::json!({
+            "type": format!("Распаковка Java {}...", required_major),
+            "task": 85,
+            "total": 100
+        }),
+    );
 
     if cfg!(target_os = "windows") {
         let _ = extract_zip_archive(&archive_path, &runtime_dir, false);
@@ -1095,10 +1197,24 @@ async fn ensure_java_21(app: &AppHandle, custom_path: &str) -> Result<String, St
     let _ = fs::remove_file(&archive_path);
 
     if let Some(found) = find_java_binary_in_dir(&runtime_dir, bin_name) {
-        return Ok(found.to_string_lossy().to_string());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if let Ok(meta) = fs::metadata(&found) {
+                let mut perms = meta.permissions();
+                perms.set_mode(0o755);
+                let _ = fs::set_permissions(&found, perms);
+            }
+        }
+        let path_str = found.to_string_lossy().to_string();
+        let _ = app.emit(
+            "game:log",
+            format!("[Java Auto-Installer] ✅ Портативная Java {} успешно установлена: {}", required_major, path_str),
+        );
+        return Ok(path_str);
     }
 
-    Err("Не удалось найти или распаковать Java 21".to_string())
+    Err(format!("Исполняемый файл Java {} не найден после распаковки", required_major))
 }
 
 async fn ensure_all_assets_downloaded(
@@ -1565,7 +1681,7 @@ async fn launch_installed_neoforge(
 async fn download_vanilla_to_root(
     app: &AppHandle,
     requested_version: &str,
-) -> Result<(PathBuf, Vec<PathBuf>, String, String, String), String> {
+) -> Result<(PathBuf, Vec<PathBuf>, String, String, String, PathBuf, u32), String> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(60))
         .build()
@@ -1588,7 +1704,7 @@ async fn download_vanilla_to_root(
         .unwrap_or("1.21.4")
         .to_string();
 
-    let target_ver = if requested_version.starts_with("latest") || requested_version.starts_with("26.") {
+    let target_ver = if requested_version.starts_with("latest") {
         latest_release.clone()
     } else {
         requested_version.split('-').next().unwrap_or(&latest_release).to_string()
@@ -1607,7 +1723,7 @@ async fn download_vanilla_to_root(
     let root_dir = get_game_dir();
     let ver_dir = root_dir.join("versions").join(&actual_ver);
     let libs_dir = root_dir.join("libraries");
-    let natives_dir = root_dir.join("natives");
+    let natives_dir = root_dir.join("natives").join(&actual_ver);
     fs::create_dir_all(&ver_dir).map_err(|e| e.to_string())?;
     fs::create_dir_all(&libs_dir).map_err(|e| e.to_string())?;
     fs::create_dir_all(&natives_dir).map_err(|e| e.to_string())?;
@@ -1628,6 +1744,8 @@ async fn download_vanilla_to_root(
         let _ = fs::write(&ver_json_path, serde_json::to_string_pretty(&j).unwrap_or_default());
         j
     };
+
+    let required_java = detect_required_java_version(&actual_ver, Some(&ver_json));
 
     let main_class = ver_json["mainClass"]
         .as_str()
@@ -1700,126 +1818,7 @@ async fn download_vanilla_to_root(
         }),
     );
 
-    Ok((root_dir, classpath_jars, actual_ver, asset_id, main_class))
-}
-
-
-// Создает преднастроенный options.txt (русский язык, авто-подключение текстурпаков) и включает шейдеры Iris при первом запуске
-fn ensure_default_game_options(root_dir: &PathBuf) {
-    let options_path = root_dir.join("options.txt");
-    if !options_path.exists() {
-        let mut packs = vec!["\"vanilla\"".to_string(), "\"mod_resources\"".to_string()];
-        let rp_dir = root_dir.join("resourcepacks");
-        if let Ok(entries) = fs::read_dir(&rp_dir) {
-            for entry in entries.flatten() {
-                let name = entry.file_name().to_string_lossy().to_string();
-                if name.ends_with(".zip") {
-                    packs.push(format!("\"file/{}\"", name));
-                }
-            }
-        }
-        let default_opts = format!(
-            "lang:ru_ru\nguiScale:0\nmaxFps:260\nenableVsync:false\nrenderDistance:12\nsimulationDistance:10\ngamma:0.5\ntutorialStep:none\njoinedFirstServer:true\nresourcePacks:[{}]\n",
-            packs.join(",")
-        );
-        let _ = fs::write(&options_path, default_opts);
-    }
-
-    // Автоматически включаем поддержку шейдеров в config/iris.properties, если в shaderpacks/ лежит шейдерпак
-    let config_dir = root_dir.join("config");
-    let _ = fs::create_dir_all(&config_dir);
-    let iris_props = config_dir.join("iris.properties");
-    if !iris_props.exists() {
-        let mut first_shader = String::new();
-        let sp_dir = root_dir.join("shaderpacks");
-        let _ = fs::create_dir_all(&sp_dir);
-        if let Ok(entries) = fs::read_dir(&sp_dir) {
-            for entry in entries.flatten() {
-                let name = entry.file_name().to_string_lossy().to_string();
-                if name.ends_with(".zip") {
-                    first_shader = name;
-                    break;
-                }
-            }
-        }
-        let iris_content = if !first_shader.is_empty() {
-            format!("enableShaders=true\nshaderPack={}\n", first_shader)
-        } else {
-            "enableShaders=true\n".to_string()
-        };
-        let _ = fs::write(&iris_props, iris_content);
-    }
-}
-
-
-// Автоматическая запись каждой строчки лога в файл .fenixcraft/logs/fenixcraft-debug.log
-fn append_to_debug_file(line: &str) {
-    let root = get_game_dir();
-    let logs_dir = root.join("logs");
-    let _ = fs::create_dir_all(&logs_dir);
-    let log_file = logs_dir.join("fenixcraft-debug.log");
-    if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(&log_file) {
-        let _ = writeln!(f, "{}", line);
-    }
-    // Дублируем также в корень .fenixcraft/fenixcraft-debug.log для быстрого доступа
-    let root_log = root.join("fenixcraft-debug.log");
-    if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(&root_log) {
-        let _ = writeln!(f, "{}", line);
-    }
-}
-
-#[tauri::command]
-fn save_debug_log(console_text: String, custom_path: Option<String>) -> serde_json::Value {
-    let root = get_game_dir();
-    let logs_dir = root.join("logs");
-    let _ = fs::create_dir_all(&logs_dir);
-
-    let target_path = if let Some(p) = custom_path.filter(|s| !s.trim().is_empty()) {
-        PathBuf::from(p)
-    } else {
-        root.join("fenixcraft-debug.log")
-    };
-
-    let mut full_report = String::new();
-    full_report.push_str("===== FENIXCRAFT LAUNCHER v1.0 DEBUG LOG =====\n");
-    full_report.push_str(&console_text);
-    full_report.push_str("\n==============================================\n");
-
-    // Если в папке logs есть свежий debug.log или latest.log от самого Minecraft — прикрепляем его хвост
-    for extra_name in ["debug.log", "latest.log"] {
-        let p = logs_dir.join(extra_name);
-        if p.exists() {
-            if let Ok(content) = fs::read_to_string(&p) {
-                let tail: Vec<&str> = content.lines().rev().take(150).collect();
-                full_report.push_str(&format!("\n--- Последние 150 строк из logs/{} ---\n", extra_name));
-                for l in tail.into_iter().rev() {
-                    full_report.push_str(l);
-                    full_report.push('\n');
-                }
-            }
-        }
-    }
-
-    match fs::write(&target_path, &full_report) {
-        Ok(_) => {
-            let _ = fs::write(logs_dir.join("fenixcraft-debug.log"), &full_report);
-            // Открываем папку с выделенным лог-файлом в Проводнике Windows
-            #[cfg(target_os = "windows")]
-            {
-                let _ = Command::new("explorer.exe")
-                    .arg(format!("/select,{}", target_path.to_string_lossy()))
-                    .spawn();
-            }
-            serde_json::json!({
-                "success": true,
-                "path": target_path.to_string_lossy().to_string()
-            })
-        }
-        Err(e) => serde_json::json!({
-            "success": false,
-            "error": e.to_string()
-        }),
-    }
+    Ok((root_dir, classpath_jars, actual_ver, asset_id, main_class, natives_dir, required_java))
 }
 
 fn spawn_and_stream_jvm(app: &AppHandle, java_bin: &str, args: &[String], work_dir: &PathBuf) {
@@ -1880,55 +1879,108 @@ async fn launch_game(app: AppHandle) -> serde_json::Value {
             format!("[FenixCraft v1.0] Подготовка к запуску профиля: {}...", config.selected_version),
         );
 
-        let java_bin = match ensure_java_21(&app_clone, &config.java_path).await {
-            Ok(bin) => bin,
-            Err(e) => {
-                let _ = app_clone.emit("game:log", format!("[ERROR] Ошибка подготовки Java 21: {}", e));
-                let _ = app_clone.emit("game:closed", ());
-                return;
-            }
-        };
-
         let root_dir = get_game_dir();
         let versions_dir = root_dir.join("versions");
 
-        // 1. Синхронизируем моды, текстуры (resourcepacks) и конфиги с вашим серверным Бэкендом
         sync_with_custom_backend(&app_clone, &root_dir, &config.selected_version, &config.backend_url).await;
         ensure_default_game_options(&root_dir);
 
-        // 2. Если выбран NeoForge или Iris + NeoForge
         if config.selected_version.contains("neoforge") {
+            let req_java = detect_required_java_version(&config.selected_version, None);
+            let java_bin = match ensure_java_runtime(&app_clone, &config.java_path, req_java, &config.selected_version).await {
+                Ok(bin) => bin,
+                Err(e) => {
+                    let _ = app_clone.emit("game:log", format!("[ERROR] {}", e));
+                    let _ = app_clone.emit("game:closed", ());
+                    return;
+                }
+            };
+
             if let Some((neo_id, neo_json_path)) = find_installed_neoforge_json(&versions_dir) {
                 if let Err(e) = launch_installed_neoforge(&app_clone, &config, &java_bin, &neo_id, &neo_json_path).await {
                     let _ = app_clone.emit("game:log", format!("[ERROR] Ошибка запуска NeoForge: {}", e));
                 }
                 let _ = app_clone.emit("game:closed", ());
                 return;
-            } else if config.selected_version.contains("iris") {
-                let _ = ensure_iris_and_sodium_mods(&app_clone, &root_dir, "1.21.1", "neoforge").await;
             }
         }
 
-        // 3. Если выбран Fabric, Iris или Iris + Fabric -> запускаем через автоустановщик Fabric + Iris
-        if config.selected_version.contains("fabric") || config.selected_version.ends_with("-iris") {
-            let with_iris = config.selected_version.contains("iris");
-            if let Err(e) = setup_and_launch_fabric(&app_clone, &config, &java_bin, &config.selected_version, with_iris).await {
-                let _ = app_clone.emit("game:log", format!("[ERROR] Ошибка запуска Fabric/Iris: {}", e));
-            }
-            let _ = app_clone.emit("game:closed", ());
-            return;
-        }
-
-        // 4. Запуск чистого Vanilla профиля
-        let (work_dir, classpath_jars, mc_ver, asset_id, main_class) =
+        let (work_dir, mut classpath_jars, mc_ver, asset_id, mut main_class, natives_dir, required_java) =
             match download_vanilla_to_root(&app_clone, &config.selected_version).await {
                 Ok(res) => res,
                 Err(e) => {
-                    let _ = app_clone.emit("game:log", format!("[ERROR] Ошибка подготовки Vanilla: {}", e));
+                    let _ = app_clone.emit("game:log", format!("[ERROR] Ошибка подготовки клиента: {}", e));
                     let _ = app_clone.emit("game:closed", ());
                     return;
                 }
             };
+
+        let java_bin = match ensure_java_runtime(&app_clone, &config.java_path, required_java, &mc_ver).await {
+            Ok(bin) => bin,
+            Err(e) => {
+                let _ = app_clone.emit("game:log", format!("[ERROR] {}", e));
+                let _ = app_clone.emit("game:closed", ());
+                return;
+            }
+        };
+
+        if config.selected_version.contains("fabric") || config.selected_version.ends_with("-iris") {
+            let client = reqwest::Client::builder().timeout(Duration::from_secs(30)).build().unwrap_or_default();
+            let loader_list_url = format!("https://meta.fabricmc.net/v2/versions/loader/{}", mc_ver);
+            if let Ok(resp) = client.get(&loader_list_url).send().await {
+                if let Ok(loaders_json) = resp.json::<serde_json::Value>().await {
+                    let loader_ver = loaders_json
+                        .as_array()
+                        .and_then(|arr| arr.first())
+                        .and_then(|item| item["loader"]["version"].as_str())
+                        .unwrap_or("0.16.10")
+                        .to_string();
+
+                    let profile_url = format!(
+                        "https://meta.fabricmc.net/v2/versions/loader/{}/{}/profile/json",
+                        mc_ver, loader_ver
+                    );
+                    if let Ok(p_resp) = client.get(&profile_url).send().await {
+                        if let Ok(fabric_json) = p_resp.json::<serde_json::Value>().await {
+                            let libs_dir = work_dir.join("libraries");
+                            let mut seen: HashSet<String> = classpath_jars
+                                .iter()
+                                .map(|p| p.to_string_lossy().to_lowercase())
+                                .collect();
+                            let mut fabric_downloads: Vec<(String, PathBuf)> = Vec::new();
+
+                            collect_libraries_from_json(
+                                &fabric_json,
+                                &libs_dir,
+                                "windows",
+                                &mut classpath_jars,
+                                &mut seen,
+                                &mut fabric_downloads,
+                            );
+
+                            for (url, dest) in fabric_downloads {
+                                if let Some(p) = dest.parent() {
+                                    let _ = fs::create_dir_all(p);
+                                }
+                                if let Ok(dl) = client.get(&url).send().await {
+                                    if let Ok(bytes) = dl.bytes().await {
+                                        let _ = fs::write(&dest, &bytes);
+                                    }
+                                }
+                            }
+
+                            if let Some(mc_cls) = fabric_json["mainClass"].as_str() {
+                                main_class = mc_cls.to_string();
+                            }
+                        }
+                    }
+                }
+            }
+
+            if config.selected_version.contains("iris") {
+                let _ = ensure_iris_and_sodium_mods(&app_clone, &work_dir, &mc_ver, "fabric").await;
+            }
+        }
 
         let offline_uuid = uuid::Uuid::new_v3(
             &uuid::Uuid::NAMESPACE_OID,
@@ -1943,11 +1995,14 @@ async fn launch_game(app: AppHandle) -> serde_json::Value {
             .collect::<Vec<_>>()
             .join(cp_sep);
 
-        let natives_str = work_dir.join("natives").to_string_lossy().to_string();
+        let natives_str = natives_dir.to_string_lossy().to_string();
 
         let mut args: Vec<String> = Vec::new();
         args.push("-Xms2G".to_string());
         args.push(format!("-Xmx{}M", config.ram));
+        if required_java >= 25 {
+            args.push("--enable-native-access=ALL-UNNAMED".to_string());
+        }
         args.push(format!("-Djava.library.path={}", natives_str));
         args.push(format!("-Djna.tmpdir={}", natives_str));
         args.push(format!("-Dorg.lwjgl.system.SharedLibraryExtractPath={}", natives_str));
@@ -1969,7 +2024,7 @@ async fn launch_game(app: AppHandle) -> serde_json::Value {
             "--username".to_string(),
             config.username.clone(),
             "--version".to_string(),
-            mc_ver,
+            mc_ver.clone(),
             "--gameDir".to_string(),
             work_dir.to_string_lossy().to_string(),
             "--assetsDir".to_string(),
@@ -1990,7 +2045,10 @@ async fn launch_game(app: AppHandle) -> serde_json::Value {
 
         let _ = app_clone.emit(
             "game:log",
-            format!("[FenixCraft v1.0] Старт Vanilla Minecraft (Java: {})", java_bin),
+            format!(
+                "[FenixCraft v1.0] Старт Minecraft {} (Рекомендованная Java {}: {})",
+                mc_ver, required_java, java_bin
+            ),
         );
 
         spawn_and_stream_jvm(&app_clone, &java_bin, &args, &work_dir);
