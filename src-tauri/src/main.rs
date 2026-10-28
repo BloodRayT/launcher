@@ -134,6 +134,7 @@ struct ServerStatus {
 struct BackendManifestFile {
     path: String,
     sha256: String,
+    #[allow(dead_code)]
     size: u64,
     url: String,
 }
@@ -476,7 +477,6 @@ async fn get_vk_news() -> serde_json::Value {
     serde_json::json!({ "success": false })
 }
 
-// --- 1. ПРОВЕРКА 100% ЦЕЛОСТНОСТИ АССЕТОВ В КОНСОЛИ ЛАУНЧЕРА ---
 #[tauri::command]
 async fn verify_assets_command(app: AppHandle) -> serde_json::Value {
     let root_dir = get_game_dir();
@@ -570,6 +570,117 @@ async fn verify_assets_command(app: AppHandle) -> serde_json::Value {
     })
 }
 
+fn append_to_debug_file(line: &str) {
+    let root = get_game_dir();
+    let logs_dir = root.join("logs");
+    let _ = fs::create_dir_all(&logs_dir);
+    let log_file = logs_dir.join("fenixcraft-debug.log");
+    if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(&log_file) {
+        let _ = writeln!(f, "{}", line);
+    }
+    let root_log = root.join("fenixcraft-debug.log");
+    if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(&root_log) {
+        let _ = writeln!(f, "{}", line);
+    }
+}
+
+#[tauri::command]
+fn save_debug_log(console_text: String, custom_path: Option<String>) -> serde_json::Value {
+    let root = get_game_dir();
+    let logs_dir = root.join("logs");
+    let _ = fs::create_dir_all(&logs_dir);
+
+    let target_path = if let Some(p) = custom_path.filter(|s| !s.trim().is_empty()) {
+        PathBuf::from(p)
+    } else {
+        root.join("fenixcraft-debug.log")
+    };
+
+    let mut full_report = String::new();
+    full_report.push_str("===== FENIXCRAFT LAUNCHER v1.0 DEBUG LOG =====\n");
+    full_report.push_str(&console_text);
+    full_report.push_str("\n==============================================\n");
+
+    for extra_name in ["debug.log", "latest.log"] {
+        let p = logs_dir.join(extra_name);
+        if p.exists() {
+            if let Ok(content) = fs::read_to_string(&p) {
+                let tail: Vec<&str> = content.lines().rev().take(150).collect();
+                full_report.push_str(&format!("\n--- Последние 150 строк из logs/{} ---\n", extra_name));
+                for l in tail.into_iter().rev() {
+                    full_report.push_str(l);
+                    full_report.push('\n');
+                }
+            }
+        }
+    }
+
+    match fs::write(&target_path, &full_report) {
+        Ok(_) => {
+            let _ = fs::write(logs_dir.join("fenixcraft-debug.log"), &full_report);
+            #[cfg(target_os = "windows")]
+            {
+                let _ = Command::new("explorer.exe")
+                    .arg(format!("/select,{}", target_path.to_string_lossy()))
+                    .spawn();
+            }
+            serde_json::json!({
+                "success": true,
+                "path": target_path.to_string_lossy().to_string()
+            })
+        }
+        Err(e) => serde_json::json!({
+            "success": false,
+            "error": e.to_string()
+        }),
+    }
+}
+
+fn ensure_default_game_options(root_dir: &PathBuf) {
+    let options_path = root_dir.join("options.txt");
+    if !options_path.exists() {
+        let mut packs = vec!["\"vanilla\"".to_string(), "\"mod_resources\"".to_string()];
+        let rp_dir = root_dir.join("resourcepacks");
+        if let Ok(entries) = fs::read_dir(&rp_dir) {
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if name.ends_with(".zip") {
+                    packs.push(format!("\"file/{}\"", name));
+                }
+            }
+        }
+        let default_opts = format!(
+            "lang:ru_ru\nguiScale:0\nmaxFps:260\nenableVsync:false\nrenderDistance:12\nsimulationDistance:10\ngamma:0.5\ntutorialStep:none\njoinedFirstServer:true\nresourcePacks:[{}]\n",
+            packs.join(",")
+        );
+        let _ = fs::write(&options_path, default_opts);
+    }
+
+    let config_dir = root_dir.join("config");
+    let _ = fs::create_dir_all(&config_dir);
+    let iris_props = config_dir.join("iris.properties");
+    if !iris_props.exists() {
+        let mut first_shader = String::new();
+        let sp_dir = root_dir.join("shaderpacks");
+        let _ = fs::create_dir_all(&sp_dir);
+        if let Ok(entries) = fs::read_dir(&sp_dir) {
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if name.ends_with(".zip") {
+                    first_shader = name;
+                    break;
+                }
+            }
+        }
+        let iris_content = if !first_shader.is_empty() {
+            format!("enableShaders=true\nshaderPack={}\n", first_shader)
+        } else {
+            "enableShaders=true\n".to_string()
+        };
+        let _ = fs::write(&iris_props, iris_content);
+    }
+}
+
 fn compute_sha256_file(path: &PathBuf) -> Option<String> {
     let mut file = fs::File::open(path).ok()?;
     let mut hasher = Sha256::new();
@@ -584,7 +695,6 @@ fn compute_sha256_file(path: &PathBuf) -> Option<String> {
     Some(hex::encode(hasher.finalize()))
 }
 
-// --- 2. СИНХРОНИЗАЦИЯ МОДОВ, ТЕКСТУР (RESOURCEPACKS) И КОНФИГОВ С ВАШИМ СЕРВЕРНЫМ БЭКЕНДОМ ---
 async fn sync_with_custom_backend(app: &AppHandle, root_dir: &PathBuf, profile: &str, backend_url: &str) {
     let base = backend_url.trim_end_matches('/');
     let manifest_url = format!("{}/manifest/{}", base, profile);
@@ -629,7 +739,6 @@ async fn sync_with_custom_backend(app: &AppHandle, root_dir: &PathBuf, profile: 
 
         let target_path = root_dir.join(&item.path);
         let need_download = if target_path.exists() {
-            // Для конфигов (config/) и настроек (options.txt) не перезаписываем существующие пользовательские настройки, если они уже созданы
             if item.path.starts_with("config/") || item.path == "options.txt" {
                 false
             } else {
@@ -670,7 +779,6 @@ async fn sync_with_custom_backend(app: &AppHandle, root_dir: &PathBuf, profile: 
         }
     }
 
-    // Если на бэкенде включен античит enforce_mods — удаляем лишние читы из папки mods/
     if manifest.enforce_mods && !allowed_mod_hashes.is_empty() {
         let mods_dir = root_dir.join("mods");
         if let Ok(entries) = fs::read_dir(&mods_dir) {
@@ -692,7 +800,6 @@ async fn sync_with_custom_backend(app: &AppHandle, root_dir: &PathBuf, profile: 
     }
 }
 
-// --- 3. АВТОМАТИЧЕСКАЯ УСТАНОВКА ШЕЙДЕРОВ IRIS И SODIUM С MODRINTH API ---
 async fn ensure_iris_and_sodium_mods(
     app: &AppHandle,
     root_dir: &PathBuf,
@@ -709,7 +816,6 @@ async fn ensure_iris_and_sodium_mods(
         .map_err(|e| e.to_string())?;
 
     for project_slug in ["sodium", "iris"] {
-        // Проверяем, есть ли уже jar этого мода в папке mods
         let mut already_installed = false;
         if let Ok(entries) = fs::read_dir(&mods_dir) {
             for entry in entries.flatten() {
@@ -730,7 +836,6 @@ async fn ensure_iris_and_sodium_mods(
             format!("[Iris Installer] Поиск последней версии '{}' для {} ({})...", project_slug, mc_ver, loader),
         );
 
-        // Пробуем точную версию MC, а если для 1.21.11 еще нет — берем совместимую 1.21.4 / 1.21.1
         for candidate_ver in [mc_ver, "1.21.4", "1.21.1"] {
             let url = format!(
                 "https://api.modrinth.com/v2/project/{}/version?loaders=[\"{}\"]&game_versions=[\"{}\"]",
@@ -771,7 +876,6 @@ async fn ensure_iris_and_sodium_mods(
         }
     }
 
-    // Дополнительно качаем Fabric API, если выбран загрузчик fabric
     if loader == "fabric" {
         let mut has_fapi = false;
         if let Ok(entries) = fs::read_dir(&mods_dir) {
@@ -813,170 +917,6 @@ async fn ensure_iris_and_sodium_mods(
         }
     }
 
-    Ok(())
-}
-
-// --- 4. АВТОМАТИЧЕСКАЯ УСТАНОВКА ЗАГРУЗЧИКА FABRIC С ОФИЦИАЛЬНОГО META.FABRICMC.NET ---
-async fn setup_and_launch_fabric(
-    app: &AppHandle,
-    config: &LauncherConfig,
-    java_bin: &str,
-    requested_version: &str,
-    with_iris: bool,
-) -> Result<(), String> {
-    // 1. Сначала гарантируем, что базовая Vanilla-версия, её библиотеки, natives и 100% ассетов скачаны
-    let (root_dir, mut classpath_jars, actual_mc_ver, asset_id, _vanilla_main) =
-        download_vanilla_to_root(app, requested_version).await?;
-
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(30))
-        .build()
-        .map_err(|e| e.to_string())?;
-
-    let _ = app.emit(
-        "game:log",
-        format!("[Fabric Installer] Получение последнего загрузчика Fabric для Minecraft {}...", actual_mc_ver),
-    );
-
-    let loader_list_url = format!("https://meta.fabricmc.net/v2/versions/loader/{}", actual_mc_ver);
-    let loaders_json: serde_json::Value = client
-        .get(&loader_list_url)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?
-        .json()
-        .await
-        .map_err(|e| e.to_string())?;
-
-    let loader_ver = loaders_json
-        .as_array()
-        .and_then(|arr| arr.first())
-        .and_then(|item| item["loader"]["version"].as_str())
-        .unwrap_or("0.16.10")
-        .to_string();
-
-    let profile_url = format!(
-        "https://meta.fabricmc.net/v2/versions/loader/{}/{}/profile/json",
-        actual_mc_ver, loader_ver
-    );
-    let fabric_json: serde_json::Value = client
-        .get(&profile_url)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?
-        .json()
-        .await
-        .map_err(|e| e.to_string())?;
-
-    let libs_dir = root_dir.join("libraries");
-    let mut seen: HashSet<String> = classpath_jars
-        .iter()
-        .map(|p| p.to_string_lossy().to_lowercase())
-        .collect();
-    let mut fabric_downloads: Vec<(String, PathBuf)> = Vec::new();
-
-    collect_libraries_from_json(
-        &fabric_json,
-        &libs_dir,
-        "windows",
-        &mut classpath_jars,
-        &mut seen,
-        &mut fabric_downloads,
-    );
-
-    let total_fab = fabric_downloads.len().max(1);
-    for (idx, (url, dest)) in fabric_downloads.iter().enumerate() {
-        let fname = dest.file_name().unwrap_or_default().to_string_lossy().to_string();
-        let _ = app.emit(
-            "game:progress",
-            serde_json::json!({
-                "type": format!("Fabric Lib: {}", fname),
-                "task": idx + 1,
-                "total": total_fab
-            }),
-        );
-        if let Some(p) = dest.parent() {
-            let _ = fs::create_dir_all(p);
-        }
-        let resp = client.get(url).send().await.map_err(|e| e.to_string())?;
-        let bytes = resp.bytes().await.map_err(|e| e.to_string())?;
-        fs::write(dest, &bytes).map_err(|e| e.to_string())?;
-    }
-
-    // 2. Если выбран профиль Iris или Iris + Fabric — автоматически ставим Sodium + Iris + Fabric API в mods/
-    if with_iris {
-        let _ = ensure_iris_and_sodium_mods(app, &root_dir, &actual_mc_ver, "fabric").await;
-    }
-
-    let main_class = fabric_json["mainClass"]
-        .as_str()
-        .unwrap_or("net.fabricmc.loader.impl.launch.knot.KnotClient")
-        .to_string();
-
-    let offline_uuid = uuid::Uuid::new_v3(
-        &uuid::Uuid::NAMESPACE_OID,
-        format!("OfflinePlayer:{}", config.username).as_bytes(),
-    )
-    .to_string();
-
-    let cp_sep = if cfg!(windows) { ";" } else { ":" };
-    let cp_string = classpath_jars
-        .iter()
-        .map(|p| p.to_string_lossy().to_string())
-        .collect::<Vec<_>>()
-        .join(cp_sep);
-
-    let natives_str = root_dir.join("natives").to_string_lossy().to_string();
-
-    let mut args: Vec<String> = Vec::new();
-    args.push("-Xms2G".to_string());
-    args.push(format!("-Xmx{}M", config.ram));
-    args.push(format!("-Djava.library.path={}", natives_str));
-    args.push(format!("-Djna.tmpdir={}", natives_str));
-    args.push(format!("-Dorg.lwjgl.system.SharedLibraryExtractPath={}", natives_str));
-    args.push(format!("-Dio.netty.native.workdir={}", natives_str));
-    args.push("-Dminecraft.launcher.brand=FenixCraft".to_string());
-    args.push("-Dminecraft.launcher.version=1.0".to_string());
-
-    for custom_arg in config.jvm_args.split_whitespace() {
-        if !custom_arg.starts_with("-Xmx") && !custom_arg.starts_with("-Xms") {
-            args.push(custom_arg.to_string());
-        }
-    }
-
-    args.push("-cp".to_string());
-    args.push(cp_string);
-    args.push(main_class);
-
-    args.extend_from_slice(&[
-        "--username".to_string(),
-        config.username.clone(),
-        "--version".to_string(),
-        actual_mc_ver,
-        "--gameDir".to_string(),
-        root_dir.to_string_lossy().to_string(),
-        "--assetsDir".to_string(),
-        root_dir.join("assets").to_string_lossy().to_string(),
-        "--assetIndex".to_string(),
-        asset_id,
-        "--uuid".to_string(),
-        offline_uuid,
-        "--accessToken".to_string(),
-        "0".to_string(),
-        "--versionType".to_string(),
-        "FenixCraft-Fabric".to_string(),
-        "--width".to_string(),
-        config.width.to_string(),
-        "--height".to_string(),
-        config.height.to_string(),
-    ]);
-
-    let _ = app.emit(
-        "game:log",
-        format!("[FenixCraft v1.0] Старт Fabric {} (Iris={}) -> Java: {}", loader_ver, with_iris, java_bin),
-    );
-
-    spawn_and_stream_jvm(app, java_bin, &args, &root_dir);
     Ok(())
 }
 
@@ -1504,14 +1444,15 @@ async fn launch_installed_neoforge(
     let root_dir = get_game_dir();
     let versions_dir = root_dir.join("versions");
     let libs_dir = root_dir.join("libraries");
-    let natives_dir = root_dir.join("natives");
     let assets_dir = root_dir.join("assets");
-    let _ = fs::create_dir_all(&natives_dir);
 
     let neo_str = fs::read_to_string(neo_json_path).map_err(|e| e.to_string())?;
     let neo_json: serde_json::Value = serde_json::from_str(&neo_str).map_err(|e| e.to_string())?;
 
     let inherits_from = neo_json["inheritsFrom"].as_str().unwrap_or("1.21.1");
+    let natives_dir = root_dir.join("natives").join(inherits_from);
+    let _ = fs::create_dir_all(&natives_dir);
+
     let vanilla_json_path = versions_dir.join(inherits_from).join(format!("{}.json", inherits_from));
 
     if !vanilla_json_path.exists() {
@@ -1578,6 +1519,13 @@ async fn launch_installed_neoforge(
     let asset_url = van_json["assetIndex"]["url"].as_str();
 
     ensure_all_assets_downloaded(app, &client, &root_dir, &asset_index, asset_url).await?;
+
+    for jar in &classpath_jars {
+        let name = jar.file_name().unwrap_or_default().to_string_lossy();
+        if name.contains("natives") && jar.exists() {
+            let _ = extract_zip_archive(jar, &natives_dir, true);
+        }
+    }
 
     let cp_sep = if cfg!(windows) { ";" } else { ":" };
     let cp_string = classpath_jars
