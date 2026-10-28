@@ -650,10 +650,26 @@ fn ensure_default_game_options(root_dir: &PathBuf) {
             }
         }
         let default_opts = format!(
-            "lang:ru_ru\nguiScale:0\nmaxFps:260\nenableVsync:false\nrenderDistance:12\nsimulationDistance:10\ngamma:0.5\nnarrator:0\ntutorialStep:none\njoinedFirstServer:true\nresourcePacks:[{}]\n",
+            "lang:ru_ru\nnarrator:0\nguiScale:0\nmaxFps:260\nenableVsync:false\nrenderDistance:12\nsimulationDistance:10\ngamma:0.5\ntutorialStep:none\njoinedFirstServer:true\nresourcePacks:[{}]\n",
             packs.join(",")
         );
         let _ = fs::write(&options_path, default_opts);
+    } else if let Ok(existing) = fs::read_to_string(&options_path) {
+        // Принудительно отключаем narrator (SAPI Text2Speech вызывает 0xC0000005 на Windows сразу после загрузки unifont!)
+        let mut lines: Vec<String> = Vec::new();
+        let mut has_narrator = false;
+        for line in existing.lines() {
+            if line.starts_with("narrator:") {
+                lines.push("narrator:0".to_string());
+                has_narrator = true;
+            } else {
+                lines.push(line.to_string());
+            }
+        }
+        if !has_narrator {
+            lines.push("narrator:0".to_string());
+        }
+        let _ = fs::write(&options_path, lines.join("\n") + "\n");
     }
 
     let config_dir = root_dir.join("config");
@@ -2131,13 +2147,17 @@ async fn launch_game(app: AppHandle) -> serde_json::Value {
         let mut args: Vec<String> = Vec::new();
         args.push("-Xms2G".to_string());
         args.push(format!("-Xmx{}M", config.ram));
+        args.push("-Xss1M".to_string());
+        args.push("-XX:HeapDumpPath=MojangTricksIntelDriversForPerformance_javaw.exe_minecraft.exe.heapdump".to_string());
+        args.push("-Dfile.encoding=UTF-8".to_string());
+        args.push("-Dsun.stdout.encoding=UTF-8".to_string());
+        args.push("-Dsun.stderr.encoding=UTF-8".to_string());
         if required_java >= 25 {
             args.push("--enable-native-access=ALL-UNNAMED".to_string());
             args.push("--sun-misc-unsafe-memory-access=allow".to_string());
         }
         args.push(format!("-Djava.library.path={}", natives_str));
         args.push(format!("-Djna.tmpdir={}", natives_str));
-        args.push(format!("-Dorg.lwjgl.system.SharedLibraryExtractPath={}", natives_str));
         args.push(format!("-Dio.netty.native.workdir={}", natives_str));
         args.push("-Dminecraft.launcher.brand=FenixCraft".to_string());
         args.push("-Dminecraft.launcher.version=1.0".to_string());
@@ -2151,6 +2171,10 @@ async fn launch_game(app: AppHandle) -> serde_json::Value {
         args.push("-cp".to_string());
         args.push(cp_string);
         args.push(main_class);
+
+        // Для пиратского (offline) режима передаем валидный по формату JWT-подобный токен-заглушку (три части через точку),
+        // чтобы в Minecraft 26.3 поток RealmsClient (SignedJWT.parse) не выбрасывал RuntimeException во время загрузки главного меню!
+        let dummy_jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJibG9vZHJheXQifQ.c2lnbmF0dXJl";
 
         args.extend_from_slice(&[
             "--username".to_string(),
@@ -2166,6 +2190,10 @@ async fn launch_game(app: AppHandle) -> serde_json::Value {
             "--uuid".to_string(),
             offline_uuid,
             "--accessToken".to_string(),
+            dummy_jwt.to_string(),
+            "--clientId".to_string(),
+            "0".to_string(),
+            "--xuid".to_string(),
             "0".to_string(),
             "--versionType".to_string(),
             "release".to_string(),
