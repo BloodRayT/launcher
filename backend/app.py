@@ -74,3 +74,12 @@ def get_profile_manifest(profile: str):
         "enforce_mods": True,
         "files": files_list
     }
+
+
+@app.get("/api/launcher/version")
+def get_launcher_version():
+    """Укажите здесь новую версию (например 1.1), чтобы у всех игроков появилась кнопка автообновления."""
+    return {
+        "version": "1.0",
+        "url": "https://github.com/BloodRayT/launcher/releases/latest/download/FenixCraft_1.1.0_x64-setup.exe"
+    }

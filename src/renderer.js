@@ -46,6 +46,8 @@ window.fenixAPI = {
     return { success: false };
   },
   verifyAssets: () => tauriCore ? tauriCore.invoke('verify_assets_command') : Promise.resolve({ ok: true }),
+  checkLauncherUpdate: () => tauriCore ? tauriCore.invoke('check_launcher_update') : Promise.resolve({ updateAvailable: false }),
+  installLauncherUpdate: (downloadUrl) => tauriCore ? tauriCore.invoke('install_launcher_update', { downloadUrl }) : Promise.resolve(),
   saveDebugLog: (consoleText, customPath) => tauriCore ? tauriCore.invoke('save_debug_log', { consoleText, customPath }) : Promise.resolve({ success: false }),
   launchGame: () => tauriCore ? tauriCore.invoke('launch_game') : Promise.resolve({ status: 'launched' }),
   onLog: (cb) => tauriEvent?.listen('game:log', (event) => cb(event.payload)),
@@ -523,12 +525,29 @@ async function updateTwitchStatus() {
   } catch (e) {}
 }
 
+
+async function checkForLauncherUpdates() {
+  try {
+    const res = await window.fenixAPI.checkLauncherUpdate();
+    const btn = document.getElementById('btn-update-launcher');
+    if (res && res.updateAvailable && btn) {
+      btn.textContent = `⬇ Обновить до v${res.latestVersion}`;
+      btn.classList.remove('hidden');
+      btn.onclick = async () => {
+        btn.textContent = 'Загрузка обновления...';
+        await window.fenixAPI.installLauncherUpdate(res.downloadUrl);
+      };
+    }
+  } catch (e) {}
+}
+
 (async () => {
   await bindSettings();
   renderShop();
   await loadVkNews();
   await refreshServers();
   await updateTwitchStatus();
+  await checkForLauncherUpdates();
   setInterval(updateTwitchStatus, 30000);
   setInterval(refreshServers, 30000);
 })();

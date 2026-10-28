@@ -1835,6 +1835,106 @@ async fn download_vanilla_to_root(
     Ok((root_dir, classpath_jars, actual_ver, asset_id, main_class, natives_dir, required_java))
 }
 
+
+const CURRENT_LAUNCHER_VERSION: &str = "1.0";
+
+// Проверяет наличие новой версии лаунчера на GitHub Releases или вашем Бэкенде
+#[tauri::command]
+async fn check_launcher_update() -> serde_json::Value {
+    let client = reqwest::Client::builder()
+        .user_agent("FenixCraftLauncher/1.0")
+        .timeout(Duration::from_secs(8))
+        .build()
+        .unwrap_or_default();
+
+    // 1. Проверяем ваш серверный бэкенд (/api/launcher/version)
+    let cfg = get_config();
+    let backend_ver_url = format!("{}/version", cfg.backend_url.trim_end_matches('/'));
+    if let Ok(resp) = client.get(&backend_ver_url).send().await {
+        if resp.status().is_success() {
+            if let Ok(json) = resp.json::<serde_json::Value>().await {
+                if let (Some(latest), Some(dl_url)) = (json["version"].as_str(), json["url"].as_str()) {
+                    let clean_latest = latest.trim_start_matches('v');
+                    if clean_latest != CURRENT_LAUNCHER_VERSION {
+                        return serde_json::json!({
+                            "updateAvailable": true,
+                            "latestVersion": clean_latest,
+                            "downloadUrl": dl_url
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Проверяем официальный GitHub Releases репозитория BloodRayT/launcher
+    let gh_url = "https://api.github.com/repos/BloodRayT/launcher/releases/latest";
+    if let Ok(resp) = client.get(gh_url).send().await {
+        if resp.status().is_success() {
+            if let Ok(json) = resp.json::<serde_json::Value>().await {
+                if let Some(tag) = json["tag_name"].as_str() {
+                    let clean_tag = tag.trim_start_matches('v');
+                    if clean_tag != CURRENT_LAUNCHER_VERSION && clean_tag != "1.0.0" {
+                        let mut exe_url = json["html_url"].as_str().unwrap_or("https://github.com/BloodRayT/launcher/releases").to_string();
+                        if let Some(assets) = json["assets"].as_array() {
+                            for asset in assets {
+                                if let Some(name) = asset["name"].as_str() {
+                                    if cfg!(windows) && (name.ends_with("-setup.exe") || name.ends_with(".msi")) {
+                                        if let Some(u) = asset["browser_download_url"].as_str() {
+                                            exe_url = u.to_string();
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        return serde_json::json!({
+                            "updateAvailable": true,
+                            "latestVersion": clean_tag,
+                            "downloadUrl": exe_url
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    serde_json::json!({
+        "updateAvailable": false,
+        "latestVersion": CURRENT_LAUNCHER_VERSION
+    })
+}
+
+// Скачивает новый установщик лаунчера, запускает обновление и закрывает старую версию
+#[tauri::command]
+async fn install_launcher_update(app: AppHandle, download_url: String) -> serde_json::Value {
+    let client = reqwest::Client::builder()
+        .user_agent("FenixCraftLauncher/1.0")
+        .timeout(Duration::from_secs(120))
+        .build()
+        .unwrap_or_default();
+
+    let update_file = get_game_dir().join("FenixCraft_Update_Setup.exe");
+    let _ = app.emit("game:log", format!("[Auto-Updater] Скачивание новой версии лаунчера из {}...", download_url));
+
+    if let Ok(resp) = client.get(&download_url).send().await {
+        if resp.status().is_success() {
+            if let Ok(bytes) = resp.bytes().await {
+                if fs::write(&update_file, &bytes).is_ok() {
+                    #[cfg(target_os = "windows")]
+                    {
+                        let _ = Command::new(&update_file).spawn();
+                        std::process::exit(0);
+                    }
+                }
+            }
+        }
+    }
+
+    open_external_url(download_url);
+    serde_json::json!({ "status": "opened_in_browser" })
+}
+
 fn spawn_and_stream_jvm(app: &AppHandle, java_bin: &str, args: &[String], work_dir: &PathBuf) {
     let mut cmd = Command::new(java_bin);
     cmd.args(args)
@@ -2106,6 +2206,8 @@ fn main() {
             check_twitch_live,
             verify_assets_command,
             save_debug_log,
+            check_launcher_update,
+            install_launcher_update,
             launch_game
         ])
         .run(tauri::generate_context!())
