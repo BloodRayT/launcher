@@ -1751,6 +1751,77 @@ fn ensure_default_game_options(root_dir: &PathBuf) {
     }
 }
 
+
+// Автоматическая запись каждой строчки лога в файл .fenixcraft/logs/fenixcraft-debug.log
+fn append_to_debug_file(line: &str) {
+    let root = get_game_dir();
+    let logs_dir = root.join("logs");
+    let _ = fs::create_dir_all(&logs_dir);
+    let log_file = logs_dir.join("fenixcraft-debug.log");
+    if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(&log_file) {
+        let _ = writeln!(f, "{}", line);
+    }
+    // Дублируем также в корень .fenixcraft/fenixcraft-debug.log для быстрого доступа
+    let root_log = root.join("fenixcraft-debug.log");
+    if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(&root_log) {
+        let _ = writeln!(f, "{}", line);
+    }
+}
+
+#[tauri::command]
+fn save_debug_log(console_text: String, custom_path: Option<String>) -> serde_json::Value {
+    let root = get_game_dir();
+    let logs_dir = root.join("logs");
+    let _ = fs::create_dir_all(&logs_dir);
+
+    let target_path = if let Some(p) = custom_path.filter(|s| !s.trim().is_empty()) {
+        PathBuf::from(p)
+    } else {
+        root.join("fenixcraft-debug.log")
+    };
+
+    let mut full_report = String::new();
+    full_report.push_str("===== FENIXCRAFT LAUNCHER v1.0 DEBUG LOG =====\n");
+    full_report.push_str(&console_text);
+    full_report.push_str("\n==============================================\n");
+
+    // Если в папке logs есть свежий debug.log или latest.log от самого Minecraft — прикрепляем его хвост
+    for extra_name in ["debug.log", "latest.log"] {
+        let p = logs_dir.join(extra_name);
+        if p.exists() {
+            if let Ok(content) = fs::read_to_string(&p) {
+                let tail: Vec<&str> = content.lines().rev().take(150).collect();
+                full_report.push_str(&format!("\n--- Последние 150 строк из logs/{} ---\n", extra_name));
+                for l in tail.into_iter().rev() {
+                    full_report.push_str(l);
+                    full_report.push('\n');
+                }
+            }
+        }
+    }
+
+    match fs::write(&target_path, &full_report) {
+        Ok(_) => {
+            let _ = fs::write(logs_dir.join("fenixcraft-debug.log"), &full_report);
+            // Открываем папку с выделенным лог-файлом в Проводнике Windows
+            #[cfg(target_os = "windows")]
+            {
+                let _ = Command::new("explorer.exe")
+                    .arg(format!("/select,{}", target_path.to_string_lossy()))
+                    .spawn();
+            }
+            serde_json::json!({
+                "success": true,
+                "path": target_path.to_string_lossy().to_string()
+            })
+        }
+        Err(e) => serde_json::json!({
+            "success": false,
+            "error": e.to_string()
+        }),
+    }
+}
+
 fn spawn_and_stream_jvm(app: &AppHandle, java_bin: &str, args: &[String], work_dir: &PathBuf) {
     let mut cmd = Command::new(java_bin);
     cmd.args(args)
@@ -1771,7 +1842,9 @@ fn spawn_and_stream_jvm(app: &AppHandle, java_bin: &str, args: &[String], work_d
                 std::thread::spawn(move || {
                     let reader = BufReader::new(stdout);
                     for line in reader.lines().map_while(Result::ok) {
-                        let _ = app_out.emit("game:log", format!("[MC] {}", line));
+                        let formatted = format!("[MC] {}", line);
+                        append_to_debug_file(&formatted);
+                        let _ = app_out.emit("game:log", formatted);
                     }
                 });
             }
@@ -1780,7 +1853,9 @@ fn spawn_and_stream_jvm(app: &AppHandle, java_bin: &str, args: &[String], work_d
                 std::thread::spawn(move || {
                     let reader = BufReader::new(stderr);
                     for line in reader.lines().map_while(Result::ok) {
-                        let _ = app_err.emit("game:log", format!("[JVM] {}", line));
+                        let formatted = format!("[JVM] {}", line);
+                        append_to_debug_file(&formatted);
+                        let _ = app_err.emit("game:log", formatted);
                     }
                 });
             }
@@ -1940,6 +2015,7 @@ fn main() {
             get_vk_news,
             check_twitch_live,
             verify_assets_command,
+            save_debug_log,
             launch_game
         ])
         .run(tauri::generate_context!())

@@ -46,6 +46,7 @@ window.fenixAPI = {
     return { success: false };
   },
   verifyAssets: () => tauriCore ? tauriCore.invoke('verify_assets_command') : Promise.resolve({ ok: true }),
+  saveDebugLog: (consoleText, customPath) => tauriCore ? tauriCore.invoke('save_debug_log', { consoleText, customPath }) : Promise.resolve({ success: false }),
   launchGame: () => tauriCore ? tauriCore.invoke('launch_game') : Promise.resolve({ status: 'launched' }),
   onLog: (cb) => tauriEvent?.listen('game:log', (event) => cb(event.payload)),
   onProgress: (cb) => tauriEvent?.listen('game:progress', (event) => cb(event.payload)),
@@ -310,6 +311,45 @@ window.resetDefaultServers = async () => {
   currentConfig = await window.fenixAPI.saveConfig({ ...currentConfig, customServers: MY_SERVERS });
   await refreshServers();
 };
+
+
+const btnCopyConsole = document.getElementById('btn-copy-console');
+if (btnCopyConsole) {
+  btnCopyConsole.onclick = async () => {
+    const out = document.getElementById('console-output');
+    const selected = window.getSelection()?.toString();
+    const textToCopy = selected && selected.length > 0 ? selected : (out?.textContent || '');
+    try {
+      await navigator.clipboard.writeText(textToCopy);
+      const oldText = btnCopyConsole.textContent;
+      btnCopyConsole.textContent = '✅ Скопировано!';
+      setTimeout(() => { btnCopyConsole.textContent = oldText; }, 2000);
+    } catch (e) {}
+  };
+}
+
+const btnSaveDebug = document.getElementById('btn-save-debug');
+if (btnSaveDebug) {
+  btnSaveDebug.onclick = async () => {
+    const out = document.getElementById('console-output');
+    const text = out?.textContent || '';
+    let chosenPath = null;
+    if (tauriDialog?.save) {
+      try {
+        chosenPath = await tauriDialog.save({
+          title: 'Сохранить Debug-лог лаунчера',
+          defaultPath: 'fenixcraft-debug.log',
+          filters: [{ name: 'Log Files', extensions: ['log', 'txt'] }]
+        });
+      } catch (e) {}
+    }
+    const res = await window.fenixAPI.saveDebugLog(text, chosenPath);
+    if (res && res.success) {
+      out.textContent += `\n[ Debug Saved ] Лог успешно сохранен в файл: ${res.path}\n`;
+      out.scrollTop = out.scrollHeight;
+    }
+  };
+}
 
 const btnVerifyAssets = document.getElementById('btn-verify-assets');
 if (btnVerifyAssets) {
