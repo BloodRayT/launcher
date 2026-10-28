@@ -221,6 +221,46 @@ fn strip_html_tags(input: &str) -> String {
         .to_string()
 }
 
+
+// --- ПРОВЕРКА ОНЛАЙНА СТРИМА TWITCH (HTTPS://WWW.TWITCH.TV/BLOODRAYT) ---
+#[tauri::command]
+async fn check_twitch_live() -> serde_json::Value {
+    let client = reqwest::Client::builder()
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36")
+        .timeout(Duration::from_secs(8))
+        .build()
+        .unwrap_or_default();
+
+    // 1. Быстрая проверка через публичный GraphQL Twitch (Client-ID веб-плеера)
+    let gql_body = serde_json::json!({
+        "query": "query { user(login: \"bloodrayt\") { stream { id type } } }"
+    });
+
+    if let Ok(resp) = client
+        .post("https://gql.twitch.tv/gql")
+        .header("Client-Id", "kimne78kx3ncx6brgo4mv6wki5h1ko")
+        .json(&gql_body)
+        .send()
+        .await
+    {
+        if let Ok(json) = resp.json::<serde_json::Value>().await {
+            let is_live = !json["data"]["user"]["stream"].is_null()
+                && json["data"]["user"]["stream"]["type"].as_str() == Some("live");
+            return serde_json::json!({ "live": is_live });
+        }
+    }
+
+    // 2. Резервная проверка через страницу канала
+    if let Ok(resp) = client.get("https://www.twitch.tv/bloodrayt").send().await {
+        if let Ok(text) = resp.text().await {
+            let is_live = text.contains("\"isLiveBroadcast\":true");
+            return serde_json::json!({ "live": is_live });
+        }
+    }
+
+    serde_json::json!({ "live": false })
+}
+
 #[tauri::command]
 async fn get_vk_news() -> serde_json::Value {
     let cfg = get_config();
@@ -1064,8 +1104,7 @@ async fn launch_game(app: AppHandle) -> serde_json::Value {
         let root_dir = get_game_dir();
         let versions_dir = root_dir.join("versions");
 
-        let is_modded_selected = !config.selected_version.contains("vanilla")
-            && !config.selected_version.starts_with("latest");
+        let is_modded_selected = config.selected_version.contains("neoforge");
 
         if is_modded_selected {
             if let Some((neo_id, neo_json_path)) = find_installed_neoforge_json(&versions_dir) {
@@ -1170,6 +1209,7 @@ fn main() {
             open_external_url,
             get_servers_status,
             get_vk_news,
+            check_twitch_live,
             launch_game
         ])
         .run(tauri::generate_context!())

@@ -18,6 +18,7 @@ window.fenixAPI = {
     return await tauriDialog.open({ multiple: false, directory: false, title: 'Выберите Java 21+ (java / javaw.exe)' });
   },
   getServersStatus: (servers) => tauriCore ? tauriCore.invoke('get_servers_status', { servers }) : Promise.resolve({}),
+  checkTwitchLive: () => tauriCore ? tauriCore.invoke('check_twitch_live') : Promise.resolve({ live: false }),
   getVkNews: async () => {
     if (!tauriCore) return { success: false };
     const res = await tauriCore.invoke('get_vk_news');
@@ -320,10 +321,11 @@ async function bindSettings() {
   elArgs.value = currentConfig.jvmArgs;
   elConsole.checked = currentConfig.showConsole;
   elDebug.checked = currentConfig.debugMode;
-  elVersion.value = currentConfig.selectedVersion || 'latest-vanilla';
+  const validVersions = ['latest-vanilla','1.21.11-vanilla','1.21.1-neoforge','1.21.11-fabric','1.21.11-iris','1.21.1-iris-neoforge','1.21.11-iris-fabric'];
+  elVersion.value = validVersions.includes(currentConfig.selectedVersion) ? currentConfig.selectedVersion : 'latest-vanilla';
 
   document.getElementById('sidebar-username').textContent = currentConfig.username;
-  document.getElementById('last-launch-ver').textContent = elVersion.value.split('-')[0];
+  document.getElementById('last-launch-ver').textContent = elVersion.options[elVersion.selectedIndex]?.text || 'Vanilla';
 
   const autoSave = async () => {
     elRamLabel.textContent = `${elRam.value} МБ`;
@@ -344,7 +346,7 @@ async function bindSettings() {
     document.getElementById('sidebar-username').textContent = currentConfig.username;
     document.getElementById('sidebar-account-type').textContent =
       currentConfig.accountType === 'microsoft' ? 'Лицензия' : 'Онлайн';
-    document.getElementById('last-launch-ver').textContent = currentConfig.selectedVersion.split('-')[0];
+    document.getElementById('last-launch-ver').textContent = elVersion.options[elVersion.selectedIndex]?.text || 'Vanilla';
     renderShop();
   };
 
@@ -402,10 +404,33 @@ window.fenixAPI.onClosed(() => {
 document.getElementById('btn-refresh-news').onclick = loadVkNews;
 document.getElementById('btn-ping-servers').onclick = refreshServers;
 
+
+// Проверка статуса стрима https://www.twitch.tv/bloodrayt
+async function updateTwitchStatus() {
+  try {
+    const res = await window.fenixAPI.checkTwitchLive();
+    const label = document.getElementById('twitch-label');
+    const dot = document.getElementById('twitch-live-dot');
+    if (!label || !dot) return;
+
+    if (res && res.live) {
+      label.classList.add('twitch-live-active');
+      label.textContent = 'Twitch • LIVE';
+      dot.classList.remove('hidden');
+    } else {
+      label.classList.remove('twitch-live-active');
+      label.textContent = 'Twitch';
+      dot.classList.add('hidden');
+    }
+  } catch (e) {}
+}
+
 (async () => {
   await bindSettings();
   renderShop();
   await loadVkNews();
   await refreshServers();
+  await updateTwitchStatus();
+  setInterval(updateTwitchStatus, 30000);
   setInterval(refreshServers, 30000);
 })();

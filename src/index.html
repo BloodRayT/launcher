@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
-  <title>FenixCraft Launcher</title>
+  <title>FenixCraft Launcher v1.0</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
@@ -29,6 +29,21 @@
       border-left: 3px solid #10b981;
       color: #ffffff;
     }
+    @keyframes twitchLiveBlink {
+      0%, 100% {
+        color: #10b981;
+        text-shadow: 0 0 10px rgba(16, 185, 129, 0.85);
+      }
+      50% {
+        color: #6ee7b7;
+        opacity: 0.45;
+        text-shadow: none;
+      }
+    }
+    .twitch-live-active {
+      animation: twitchLiveBlink 1.15s infinite ease-in-out;
+      font-weight: 700;
+    }
   </style>
 </head>
 <body class="h-screen w-screen flex flex-col">
@@ -52,15 +67,23 @@
   </header>
 
   <div class="flex flex-1 overflow-hidden">
-    <!-- ЛЕВОЕ МЕНЮ -->
+    <!-- ЛЕВОЕ МЕНЮ (Вместо "Играть" — категория "Twitch" с индикацией стрима) -->
     <aside class="w-56 bg-[#0a1015] border-r border-white/5 flex flex-col justify-between p-3 shrink-0">
       <nav class="space-y-1.5 mt-2">
         <button data-tab="home" class="nav-btn active-nav w-full flex items-center space-x-3 px-4 py-2.5 rounded-r-lg text-sm font-medium transition">
           <span class="text-emerald-400">🏠</span> <span>Главная</span>
         </button>
-        <button data-tab="play-now" class="nav-btn w-full flex items-center space-x-3 px-4 py-2.5 rounded-r-lg text-sm font-medium text-slate-400 hover:text-white transition">
-          <span>▶️</span> <span>Играть</span>
+
+        <!-- Кнопка Twitch: открывает https://www.twitch.tv/bloodrayt, мигает зеленым во время стрима -->
+        <button id="btn-twitch-nav" onclick="window.fenixAPI.openUrl('https://www.twitch.tv/bloodrayt')"
+                class="w-full flex items-center justify-between px-4 py-2.5 rounded-r-lg text-sm font-medium text-slate-400 hover:text-white transition">
+          <div class="flex items-center space-x-3">
+            <span id="twitch-icon">📺</span>
+            <span id="twitch-label">Twitch</span>
+          </div>
+          <span id="twitch-live-dot" class="hidden w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
         </button>
+
         <button data-tab="shop" class="nav-btn w-full flex items-center space-x-3 px-4 py-2.5 rounded-r-lg text-sm font-medium text-slate-400 hover:text-white transition">
           <span>💎</span> <span>Магазин</span>
         </button>
@@ -78,7 +101,7 @@
       <div class="p-3 rounded-xl glass-card flex items-center space-x-3">
         <div class="w-10 h-10 rounded-full bg-emerald-600/30 border border-emerald-500 flex items-center justify-center text-lg">🟩</div>
         <div class="overflow-hidden">
-          <div id="sidebar-username" class="text-sm font-semibold text-white truncate">AndreyGusev</div>
+          <div id="sidebar-username" class="text-sm font-semibold text-white truncate">BloodRayT</div>
           <div class="flex items-center space-x-1.5 text-xs text-emerald-400">
             <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
             <span id="sidebar-account-type">Онлайн</span>
@@ -94,35 +117,37 @@
       <div id="tab-home" class="space-y-5">
         <div class="relative rounded-2xl overflow-hidden h-64 border border-white/10 flex flex-col justify-end p-7 bg-cover bg-center"
              style="background-image: linear-gradient(90deg, rgba(8,13,17,0.92) 0%, rgba(8,13,17,0.4) 60%, rgba(8,13,17,0.1) 100%), url('https://images.unsplash.com/photo-1607513746994-51f730a44832?w=1200&q=80');">
-          <div class="max-w-md space-y-2">
+          <div class="max-w-xl space-y-2">
             <div class="text-xs uppercase tracking-widest text-emerald-400 font-bold">FenixCraft Official</div>
             <h1 class="text-3xl font-extrabold text-white tracking-tight">MINECRAFT <span class="text-sm font-normal block text-slate-300">JAVA EDITION</span></h1>
             <p class="text-base font-semibold text-white pt-1">Исследуй. Строй. Выживай.</p>
-            <p class="text-xs text-slate-300 pb-2">Прямое скачивание самой свежей Vanilla с серверов Mojang без бэкенда!</p>
+            <p class="text-xs text-slate-300 pb-2">Выберите нужную сборку и нажмите зеленую кнопку «Играть» для запуска!</p>
 
             <div class="flex items-center space-x-3 pt-1">
-              <button id="btn-play" class="bg-emerald-500 hover:bg-emerald-400 active:scale-95 transition text-slate-950 font-bold px-8 py-3 rounded-xl flex items-center space-x-2 shadow-lg shadow-emerald-500/25">
+              <!-- Единственная главная зеленая кнопка запуска -->
+              <button id="btn-play" class="bg-emerald-500 hover:bg-emerald-400 active:scale-95 transition text-slate-950 font-bold px-8 py-3 rounded-xl flex items-center space-x-2 shadow-lg shadow-emerald-500/25 shrink-0">
                 <span>▶</span> <span id="btn-play-text">Играть</span>
               </button>
 
-              <select id="select-version" class="bg-[#111921]/90 border border-white/15 text-white text-sm rounded-xl px-4 py-3 focus:outline-none focus:border-emerald-500">
-                <option value="latest-vanilla">Latest Vanilla (Авто-загрузка)</option>
-                <option value="1.21.8-vanilla">1.21.8 (Vanilla)</option>
-                <option value="1.21.4-vanilla">1.21.4 (Vanilla)</option>
-                <option value="1.21.1-vanilla">1.21.1 (Vanilla)</option>
-                <option value="1.21.8-neoforge">1.21.8 (NeoForge)</option>
-                <option value="1.21.8-fabric">1.21.8 (Fabric + Iris)</option>
-                <option value="26.3-neoforge">26.3 (Fenix Pack)</option>
+              <!-- Выпадающий список версий строго в вашем порядке -->
+              <select id="select-version" class="bg-[#111921]/95 border border-white/15 text-white text-sm rounded-xl px-4 py-3 focus:outline-none focus:border-emerald-500">
+                <option value="latest-vanilla">Основной ванильный сервер (Самая последняя)</option>
+                <option value="1.21.11-vanilla">Vanilla 1.21.11</option>
+                <option value="1.21.1-neoforge">NeoForge 1.21.1</option>
+                <option value="1.21.11-fabric">Fabric 1.21.11</option>
+                <option value="1.21.11-iris">Iris</option>
+                <option value="1.21.1-iris-neoforge">Iris + NeoForge</option>
+                <option value="1.21.11-iris-fabric">Iris + Fabric</option>
               </select>
 
-              <button id="btn-quick-settings" class="bg-[#111921]/90 hover:bg-[#1a2632] border border-white/15 p-3 rounded-xl text-slate-300">🎚️</button>
+              <button id="btn-quick-settings" class="bg-[#111921]/90 hover:bg-[#1a2632] border border-white/15 p-3 rounded-xl text-slate-300 shrink-0">🎚️</button>
             </div>
           </div>
         </div>
 
         <div id="progress-container" class="hidden glass-card p-3 rounded-xl">
           <div class="flex justify-between text-xs text-slate-300 mb-1">
-            <span id="progress-status">Подключение к серверам Mojang...</span>
+            <span id="progress-status">Подготовка файлов клиента...</span>
             <span id="progress-percent">0%</span>
           </div>
           <div class="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
@@ -134,7 +159,7 @@
           <div onclick="document.getElementById('select-version').value='latest-vanilla'; document.getElementById('select-version').dispatchEvent(new Event('change'));" class="glass-card rounded-xl p-3.5 hover:border-emerald-500/40 transition cursor-pointer">
             <div class="text-emerald-400 text-lg mb-1">🌱</div>
             <div class="text-sm font-bold text-white">Последняя Vanilla</div>
-            <div class="text-xs text-emerald-400 mt-0.5">Скачать без бэкенда →</div>
+            <div class="text-xs text-emerald-400 mt-0.5">Основной сервер →</div>
           </div>
           <div onclick="switchTab('shop')" class="glass-card rounded-xl p-3.5 hover:border-amber-500/40 transition cursor-pointer">
             <div class="text-amber-400 text-lg mb-1">💎</div>
@@ -165,7 +190,7 @@
         </div>
       </div>
 
-      <!-- ВКЛАДКА: МАГАЗИН ПРИВИЛЕГИЙ (VIP, CREATIVE, MODER, ADMIN, MONEY) -->
+      <!-- ВКЛАДКА: МАГАЗИН ПРИВИЛЕГИЙ -->
       <div id="tab-shop" class="hidden space-y-5">
         <div class="flex items-center justify-between">
           <div>
@@ -176,16 +201,13 @@
             Открыть сайт магазина ↗
           </button>
         </div>
-
-        <div id="shop-grid" class="grid grid-cols-3 gap-4">
-          <!-- Карточки привилегий рендерятся из renderer.js -->
-        </div>
+        <div id="shop-grid" class="grid grid-cols-3 gap-4"></div>
       </div>
 
       <!-- ВКЛАДКА: СЕРВЕРЫ -->
       <div id="tab-servers" class="hidden space-y-4">
         <h2 class="text-xl font-bold text-white">Список серверов FenixCraft</h2>
-        <p class="text-xs text-slate-400">Нажмите на любой сервер, чтобы сделать его основным для автоматического подключения при нажатии «Играть».</p>
+        <p class="text-xs text-slate-400">Нажмите на любой сервер, чтобы сделать его основным для автоматического подключения при нажатии зеленой кнопки «Играть».</p>
         <div id="servers-full-list" class="grid grid-cols-2 gap-4"></div>
       </div>
 
@@ -215,7 +237,7 @@
             <div>
               <div class="flex justify-between text-xs">
                 <span class="text-slate-400">Выделенная ОЗУ (RAM):</span>
-                <span id="ram-label" class="text-emerald-400 font-bold">4096 МБ</span>
+                <span id="ram-label" class="text-emerald-400 font-bold">6144 МБ</span>
               </div>
               <input id="cfg-ram" type="range" min="2048" max="16384" step="512" class="w-full mt-2 accent-emerald-500" />
             </div>
@@ -236,7 +258,7 @@
             <div>
               <label class="text-xs text-slate-400">Путь к Java 21 или выше</label>
               <div class="flex space-x-2 mt-1">
-                <input id="cfg-java" type="text" placeholder="Системная Java 21 (или выберите javaw.exe)" class="flex-1 bg-[#0b1218] border border-white/10 rounded-lg px-3 py-2 text-sm text-white" />
+                <input id="cfg-java" type="text" placeholder="Автоматически (Java 21 Adoptium)" class="flex-1 bg-[#0b1218] border border-white/10 rounded-lg px-3 py-2 text-sm text-white" />
                 <button id="btn-browse-java" class="bg-slate-800 hover:bg-slate-700 px-4 rounded-lg text-xs font-medium">Обзор...</button>
               </div>
             </div>
@@ -270,8 +292,8 @@
         <div class="glass-card p-4 rounded-xl space-y-2">
           <h3 class="text-emerald-400 font-bold text-sm">2. Часто задаваемые вопросы (FAQ)</h3>
           <ul class="text-xs text-slate-300 space-y-1.5 list-disc pl-4">
-            <li><b>Как скачать чистую Vanilla без бэкенда?</b> Выберите в списке версий <code>Latest Vanilla (Авто-загрузка)</code> и нажмите «Играть». Лаунчер сам скачает последнюю официальную версию напрямую с серверов Mojang.</li>
-            <li><b>Как купить VIP, Creative, Moder, Admin или Money?</b> Перейдите во вкладку «Магазин» в левом меню и нажмите «Купить» на нужной привилегии.</li>
+            <li><b>Как запустить игру?</b> Выберите нужную версию в списке рядом с зеленой кнопкой <code>▶ Играть</code> на главном баннере и нажмите её.</li>
+            <li><b>Как узнать, идет ли стрим?</b> Когда на канале <code>twitch.tv/bloodrayt</code> идет стрим, кнопка <b>Twitch</b> в левом меню начинает мигать зеленым цветом!</li>
           </ul>
         </div>
       </div>
@@ -295,16 +317,15 @@
         </div>
         <div id="servers-list" class="space-y-2.5"></div>
         <div class="pt-2">
-          <h4 class="text-xs font-semibold text-slate-400 mb-2">Последний запуск</h4>
+          <h4 class="text-xs font-semibold text-slate-400 mb-2">Выбранный профиль</h4>
           <div class="glass-card p-3 rounded-xl flex items-center justify-between">
             <div class="flex items-center space-x-3">
               <div class="w-10 h-10 rounded-lg bg-emerald-500/20 flex items-center justify-center">🌍</div>
               <div>
-                <div id="last-launch-ver" class="text-sm font-bold text-white">Latest</div>
-                <div class="text-[11px] text-slate-400">Готов к запуску</div>
+                <div id="last-launch-ver" class="text-xs font-bold text-white truncate max-w-[140px]">Основной ванильный</div>
+                <div class="text-[11px] text-slate-400">Запуск зеленой кнопкой</div>
               </div>
             </div>
-            <button onclick="document.getElementById('btn-play').click()" class="w-8 h-8 rounded-lg bg-white/5 hover:bg-emerald-500 hover:text-slate-950 flex items-center justify-center transition">▶</button>
           </div>
         </div>
       </div>
