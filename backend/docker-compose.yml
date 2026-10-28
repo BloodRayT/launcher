@@ -1,0 +1,12 @@
+services:
+  fenixcraft-backend:
+    build: .
+    container_name: fenixcraft-backend
+    restart: always
+    ports:
+      - "8000:8000"
+    environment:
+      - BASE_PUBLIC_URL=https://fenixcraft.ru/api/launcher
+    volumes:
+      - ./storage:/app/storage
+      - ./servers.json:/app/servers.json

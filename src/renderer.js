@@ -45,6 +45,7 @@ window.fenixAPI = {
     }
     return { success: false };
   },
+  verifyAssets: () => tauriCore ? tauriCore.invoke('verify_assets_command') : Promise.resolve({ ok: true }),
   launchGame: () => tauriCore ? tauriCore.invoke('launch_game') : Promise.resolve({ status: 'launched' }),
   onLog: (cb) => tauriEvent?.listen('game:log', (event) => cb(event.payload)),
   onProgress: (cb) => tauriEvent?.listen('game:progress', (event) => cb(event.payload)),
@@ -261,12 +262,69 @@ async function loadVkNews() {
   }
 }
 
+
+function getActiveServersList() {
+  if (currentConfig && Array.isArray(currentConfig.customServers) && currentConfig.customServers.length > 0) {
+    return currentConfig.customServers;
+  }
+  return MY_SERVERS;
+}
+
+window.addOrUpdateCustomServer = async () => {
+  const name = document.getElementById('new-srv-name').value.trim();
+  const desc = document.getElementById('new-srv-desc').value.trim() || 'Сервер FenixCraft';
+  const ip = document.getElementById('new-srv-ip').value.trim();
+  const port = parseInt(document.getElementById('new-srv-port').value, 10) || 25565;
+  if (!name || !ip) return;
+
+  const list = [...getActiveServersList()];
+  const existingIdx = list.findIndex(s => s.ip.toLowerCase() === ip.toLowerCase() || s.name.toLowerCase() === name.toLowerCase());
+  const item = {
+    id: existingIdx >= 0 ? list[existingIdx].id : 'srv-' + Date.now(),
+    name,
+    desc,
+    ip,
+    port,
+    icon: existingIdx >= 0 ? list[existingIdx].icon : '🦅',
+    maxDefault: 1000
+  };
+
+  if (existingIdx >= 0) list[existingIdx] = item;
+  else list.push(item);
+
+  currentConfig = await window.fenixAPI.saveConfig({ ...currentConfig, customServers: list, selectedServer: ip });
+  document.getElementById('new-srv-name').value = '';
+  document.getElementById('new-srv-desc').value = '';
+  document.getElementById('new-srv-ip').value = '';
+  await refreshServers();
+};
+
+window.removeCustomServer = async (e, id) => {
+  e.stopPropagation();
+  const list = getActiveServersList().filter(s => s.id !== id);
+  currentConfig = await window.fenixAPI.saveConfig({ ...currentConfig, customServers: list });
+  await refreshServers();
+};
+
+window.resetDefaultServers = async () => {
+  currentConfig = await window.fenixAPI.saveConfig({ ...currentConfig, customServers: MY_SERVERS });
+  await refreshServers();
+};
+
+const btnVerifyAssets = document.getElementById('btn-verify-assets');
+if (btnVerifyAssets) {
+  btnVerifyAssets.onclick = async () => {
+    await window.fenixAPI.verifyAssets();
+  };
+}
+
 async function refreshServers() {
   const container = document.getElementById('servers-list');
   const fullContainer = document.getElementById('servers-full-list');
-  const statusMap = await window.fenixAPI.getServersStatus(MY_SERVERS);
+  const activeList = getActiveServersList();
+  const statusMap = await window.fenixAPI.getServersStatus(activeList);
 
-  const html = MY_SERVERS.map(srv => {
+  const html = activeList.map(srv => {
     const st = statusMap[srv.id] || { online: false, players: 0, maxPlayers: srv.maxDefault };
     const isSelected = currentConfig.selectedServer === srv.ip;
     return `

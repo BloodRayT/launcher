@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -11,6 +12,18 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Window};
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+struct ServerConfigItem {
+    id: String,
+    name: String,
+    desc: String,
+    ip: String,
+    port: u16,
+    icon: String,
+    max_default: u32,
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -28,6 +41,55 @@ struct LauncherConfig {
     selected_server: String,
     #[serde(default)]
     vk_token: String,
+    #[serde(default = "default_backend_url")]
+    backend_url: String,
+    #[serde(default = "default_servers_list")]
+    custom_servers: Vec<ServerConfigItem>,
+}
+
+fn default_backend_url() -> String {
+    "https://fenixcraft.ru/api/launcher".to_string()
+}
+
+fn default_servers_list() -> Vec<ServerConfigItem> {
+    vec![
+        ServerConfigItem {
+            id: "fenix-main".to_string(),
+            name: "FenixCraft".to_string(),
+            desc: "Выживание • Vanilla/Mods".to_string(),
+            ip: "play.fenixcraft.ru".to_string(),
+            port: 25565,
+            icon: "🦅".to_string(),
+            max_default: 1000,
+        },
+        ServerConfigItem {
+            id: "fenix-mods".to_string(),
+            name: "FenixTech".to_string(),
+            desc: "NeoForge • 1.21.1".to_string(),
+            ip: "tech.fenixcraft.ru".to_string(),
+            port: 25565,
+            icon: "⚙️".to_string(),
+            max_default: 500,
+        },
+        ServerConfigItem {
+            id: "fenix-rpg".to_string(),
+            name: "FenixRPG".to_string(),
+            desc: "Fabric + Iris • 1.21.11".to_string(),
+            ip: "rpg.fenixcraft.ru".to_string(),
+            port: 25565,
+            icon: "⚔️".to_string(),
+            max_default: 500,
+        },
+        ServerConfigItem {
+            id: "fenix-pvp".to_string(),
+            name: "FenixArena".to_string(),
+            desc: "Анархия • 1.21.11".to_string(),
+            ip: "pvp.fenixcraft.ru".to_string(),
+            port: 25565,
+            icon: "⭐".to_string(),
+            max_default: 300,
+        },
+    ]
 }
 
 impl Default for LauncherConfig {
@@ -45,6 +107,8 @@ impl Default for LauncherConfig {
             selected_version: "latest-vanilla".to_string(),
             selected_server: "play.fenixcraft.ru".to_string(),
             vk_token: String::new(),
+            backend_url: default_backend_url(),
+            custom_servers: default_servers_list(),
         }
     }
 }
@@ -66,8 +130,22 @@ struct ServerStatus {
     max_players: u32,
 }
 
+#[derive(Deserialize)]
+struct BackendManifestFile {
+    path: String,
+    sha256: String,
+    size: u64,
+    url: String,
+}
 
-// Нативная распаковка ZIP/JAR архивов внутри процесса Rust (без открытия консольных окон tar.exe!)
+#[derive(Deserialize)]
+struct BackendManifest {
+    profile: String,
+    #[serde(default)]
+    enforce_mods: bool,
+    files: Vec<BackendManifestFile>,
+}
+
 fn extract_zip_archive(archive_path: &PathBuf, target_dir: &PathBuf, skip_meta_inf: bool) -> Result<(), String> {
     let file = fs::File::open(archive_path).map_err(|e| e.to_string())?;
     let mut archive = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
@@ -111,7 +189,6 @@ fn get_game_dir() -> PathBuf {
     dir
 }
 
-// Проверяем стандартную папку .minecraft, чтобы мгновенно брать кешированные ассеты оттуда, если они есть
 fn get_official_mc_dir() -> PathBuf {
     let mut dir = dirs::config_dir()
         .or_else(dirs::data_dir)
@@ -128,7 +205,13 @@ fn get_config_path() -> PathBuf {
 fn get_config() -> LauncherConfig {
     let path = get_config_path();
     if let Ok(data) = fs::read_to_string(&path) {
-        if let Ok(cfg) = serde_json::from_str::<LauncherConfig>(&data) {
+        if let Ok(mut cfg) = serde_json::from_str::<LauncherConfig>(&data) {
+            if cfg.custom_servers.is_empty() {
+                cfg.custom_servers = default_servers_list();
+            }
+            if cfg.backend_url.is_empty() {
+                cfg.backend_url = default_backend_url();
+            }
             return cfg;
         }
     }
@@ -170,7 +253,13 @@ fn window_close(window: Window) {
 #[tauri::command]
 fn open_external_url(url: String) {
     #[cfg(target_os = "windows")]
-    let _ = Command::new("cmd").args(["/C", "start", "", &url]).spawn();
+    {
+        use std::os::windows::process::CommandExt;
+        let _ = Command::new("cmd")
+            .args(["/C", "start", "", &url])
+            .creation_flags(0x08000000)
+            .spawn();
+    }
     #[cfg(target_os = "linux")]
     let _ = Command::new("xdg-open").arg(&url).spawn();
     #[cfg(target_os = "macos")]
@@ -257,17 +346,14 @@ fn strip_html_tags(input: &str) -> String {
         .to_string()
 }
 
-
-// --- ПРОВЕРКА ОНЛАЙНА СТРИМА TWITCH (HTTPS://WWW.TWITCH.TV/BLOODRAYT) ---
 #[tauri::command]
 async fn check_twitch_live() -> serde_json::Value {
     let client = reqwest::Client::builder()
-        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36")
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
         .timeout(Duration::from_secs(8))
         .build()
         .unwrap_or_default();
 
-    // 1. Быстрая проверка через публичный GraphQL Twitch (Client-ID веб-плеера)
     let gql_body = serde_json::json!({
         "query": "query { user(login: \"bloodrayt\") { stream { id type } } }"
     });
@@ -282,14 +368,6 @@ async fn check_twitch_live() -> serde_json::Value {
         if let Ok(json) = resp.json::<serde_json::Value>().await {
             let is_live = !json["data"]["user"]["stream"].is_null()
                 && json["data"]["user"]["stream"]["type"].as_str() == Some("live");
-            return serde_json::json!({ "live": is_live });
-        }
-    }
-
-    // 2. Резервная проверка через страницу канала
-    if let Ok(resp) = client.get("https://www.twitch.tv/bloodrayt").send().await {
-        if let Ok(text) = resp.text().await {
-            let is_live = text.contains("\"isLiveBroadcast\":true");
             return serde_json::json!({ "live": is_live });
         }
     }
@@ -396,6 +474,510 @@ async fn get_vk_news() -> serde_json::Value {
     }
 
     serde_json::json!({ "success": false })
+}
+
+// --- 1. ПРОВЕРКА 100% ЦЕЛОСТНОСТИ АССЕТОВ В КОНСОЛИ ЛАУНЧЕРА ---
+#[tauri::command]
+async fn verify_assets_command(app: AppHandle) -> serde_json::Value {
+    let root_dir = get_game_dir();
+    let indexes_dir = root_dir.join("assets").join("indexes");
+    let objects_dir = root_dir.join("assets").join("objects");
+
+    let _ = app.emit("game:log", "====================================================");
+    let _ = app.emit("game:log", "[Assets Audit] Старт 100% проверки игровых ассетов...");
+
+    if !indexes_dir.exists() {
+        let _ = app.emit("game:log", "[Assets Audit] Папка assets/indexes еще пуста. Нажмите «Играть» для первичной загрузки.");
+        return serde_json::json!({ "ok": false, "total": 0, "valid": 0, "missing": 0 });
+    }
+
+    let mut total_checked = 0usize;
+    let mut valid_count = 0usize;
+    let mut missing_count = 0usize;
+
+    if let Ok(entries) = fs::read_dir(&indexes_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|s| s.to_str()) == Some("json") {
+                let idx_name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                if let Ok(content) = fs::read_to_string(&path) {
+                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                        if let Some(objects) = json["objects"].as_object() {
+                            let mut seen = HashSet::new();
+                            for (_k, obj) in objects {
+                                if let Some(hash) = obj["hash"].as_str() {
+                                    let expected_size = obj["size"].as_u64().unwrap_or(0);
+                                    if hash.len() >= 2 && seen.insert(hash.to_string()) {
+                                        total_checked += 1;
+                                        let file_path = objects_dir.join(&hash[0..2]).join(hash);
+                                        if let Ok(meta) = fs::metadata(&file_path) {
+                                            if meta.len() > 0 && (expected_size == 0 || meta.len() == expected_size) {
+                                                valid_count += 1;
+                                            } else {
+                                                missing_count += 1;
+                                            }
+                                        } else {
+                                            missing_count += 1;
+                                        }
+                                    }
+                                }
+                            }
+                            let _ = app.emit(
+                                "game:log",
+                                format!(
+                                    "[Assets Audit] Индекс {}: проверено уникальных объектов = {}, валидных = {}, битых/нет = {}",
+                                    idx_name,
+                                    seen.len(),
+                                    valid_count,
+                                    missing_count
+                                ),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let percent = if total_checked > 0 {
+        (valid_count * 100) / total_checked
+    } else {
+        0
+    };
+
+    if total_checked > 0 && missing_count == 0 {
+        let _ = app.emit(
+            "game:log",
+            format!("[Assets Audit] ✅ ИТОГ: 100% АССЕТОВ НА МЕСТЕ ({} из {} файлов проверены по размеру)!", valid_count, total_checked),
+        );
+    } else {
+        let _ = app.emit(
+            "game:log",
+            format!(
+                "[Assets Audit] ⚠️ ИТОГ: Готовность {}% ({} из {}). Недостает {} файлов — они автоматически докачаются при нажатии «Играть».",
+                percent, valid_count, total_checked, missing_count
+            ),
+        );
+    }
+    let _ = app.emit("game:log", "====================================================");
+
+    serde_json::json!({
+        "ok": total_checked > 0 && missing_count == 0,
+        "total": total_checked,
+        "valid": valid_count,
+        "missing": missing_count,
+        "percent": percent
+    })
+}
+
+fn compute_sha256_file(path: &PathBuf) -> Option<String> {
+    let mut file = fs::File::open(path).ok()?;
+    let mut hasher = Sha256::new();
+    let mut buf = [0u8; 65536];
+    loop {
+        let n = file.read(&mut buf).ok()?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    Some(hex::encode(hasher.finalize()))
+}
+
+// --- 2. СИНХРОНИЗАЦИЯ МОДОВ, ТЕКСТУР (RESOURCEPACKS) И КОНФИГОВ С ВАШИМ СЕРВЕРНЫМ БЭКЕНДОМ ---
+async fn sync_with_custom_backend(app: &AppHandle, root_dir: &PathBuf, profile: &str, backend_url: &str) {
+    let base = backend_url.trim_end_matches('/');
+    let manifest_url = format!("{}/manifest/{}", base, profile);
+
+    let client = match reqwest::Client::builder().timeout(Duration::from_secs(15)).build() {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+
+    let resp = match client.get(&manifest_url).send().await {
+        Ok(r) if r.status().is_success() => r,
+        _ => {
+            let _ = app.emit(
+                "game:log",
+                format!("[FenixBackend] Серверный манифест {} не активен, используем локальный/автономный режим.", manifest_url),
+            );
+            return;
+        }
+    };
+
+    let manifest: BackendManifest = match resp.json().await {
+        Ok(m) => m,
+        Err(_) => return,
+    };
+
+    let _ = app.emit(
+        "game:log",
+        format!(
+            "[FenixBackend] Получен манифест профиля '{}': проверка {} файлов (моды, текстуры, конфиги)...",
+            manifest.profile,
+            manifest.files.len()
+        ),
+    );
+
+    let mut allowed_mod_hashes: HashSet<String> = HashSet::new();
+    let total = manifest.files.len().max(1);
+
+    for (idx, item) in manifest.files.iter().enumerate() {
+        if item.path.starts_with("mods/") {
+            allowed_mod_hashes.insert(item.sha256.to_lowercase());
+        }
+
+        let target_path = root_dir.join(&item.path);
+        let need_download = if target_path.exists() {
+            // Для конфигов (config/) и настроек (options.txt) не перезаписываем существующие пользовательские настройки, если они уже созданы
+            if item.path.starts_with("config/") || item.path == "options.txt" {
+                false
+            } else {
+                match compute_sha256_file(&target_path) {
+                    Some(h) => h.to_lowercase() != item.sha256.to_lowercase(),
+                    None => true,
+                }
+            }
+        } else {
+            true
+        };
+
+        if need_download {
+            let _ = app.emit(
+                "game:progress",
+                serde_json::json!({
+                    "type": format!("Сервер: {}", item.path),
+                    "task": idx + 1,
+                    "total": total
+                }),
+            );
+            if let Some(p) = target_path.parent() {
+                let _ = fs::create_dir_all(p);
+            }
+            let file_url = if item.url.starts_with("http") {
+                item.url.clone()
+            } else {
+                format!("{}/{}", base, item.url.trim_start_matches('/'))
+            };
+            if let Ok(dl) = client.get(&file_url).send().await {
+                if dl.status().is_success() {
+                    if let Ok(bytes) = dl.bytes().await {
+                        let _ = fs::write(&target_path, &bytes);
+                        let _ = app.emit("game:log", format!("[FenixBackend] Загружен файл: {}", item.path));
+                    }
+                }
+            }
+        }
+    }
+
+    // Если на бэкенде включен античит enforce_mods — удаляем лишние читы из папки mods/
+    if manifest.enforce_mods && !allowed_mod_hashes.is_empty() {
+        let mods_dir = root_dir.join("mods");
+        if let Ok(entries) = fs::read_dir(&mods_dir) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if p.is_file() && p.extension().and_then(|s| s.to_str()) == Some("jar") {
+                    if let Some(h) = compute_sha256_file(&p) {
+                        if !allowed_mod_hashes.contains(&h.to_lowercase()) {
+                            let _ = app.emit(
+                                "game:log",
+                                format!("[Guard SHA-256] Удален сторонний мод: {:?}", p.file_name().unwrap_or_default()),
+                            );
+                            let _ = fs::remove_file(&p);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// --- 3. АВТОМАТИЧЕСКАЯ УСТАНОВКА ШЕЙДЕРОВ IRIS И SODIUM С MODRINTH API ---
+async fn ensure_iris_and_sodium_mods(
+    app: &AppHandle,
+    root_dir: &PathBuf,
+    mc_ver: &str,
+    loader: &str,
+) -> Result<(), String> {
+    let mods_dir = root_dir.join("mods");
+    fs::create_dir_all(&mods_dir).map_err(|e| e.to_string())?;
+
+    let client = reqwest::Client::builder()
+        .user_agent("FenixCraftLauncher/1.0 (fenixcraft.ru)")
+        .timeout(Duration::from_secs(30))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    for project_slug in ["sodium", "iris"] {
+        // Проверяем, есть ли уже jar этого мода в папке mods
+        let mut already_installed = false;
+        if let Ok(entries) = fs::read_dir(&mods_dir) {
+            for entry in entries.flatten() {
+                let fname = entry.file_name().to_string_lossy().to_lowercase();
+                if fname.contains(project_slug) && fname.ends_with(".jar") {
+                    already_installed = true;
+                    break;
+                }
+            }
+        }
+        if already_installed {
+            let _ = app.emit("game:log", format!("[Iris Installer] Мод '{}' уже установлен в папке mods.", project_slug));
+            continue;
+        }
+
+        let _ = app.emit(
+            "game:log",
+            format!("[Iris Installer] Поиск последней версии '{}' для {} ({})...", project_slug, mc_ver, loader),
+        );
+
+        // Пробуем точную версию MC, а если для 1.21.11 еще нет — берем совместимую 1.21.4 / 1.21.1
+        for candidate_ver in [mc_ver, "1.21.4", "1.21.1"] {
+            let url = format!(
+                "https://api.modrinth.com/v2/project/{}/version?loaders=[\"{}\"]&game_versions=[\"{}\"]",
+                project_slug, loader, candidate_ver
+            );
+            if let Ok(resp) = client.get(&url).send().await {
+                if let Ok(arr) = resp.json::<serde_json::Value>().await {
+                    if let Some(first_ver) = arr.as_array().and_then(|a| a.first()) {
+                        if let Some(file_obj) = first_ver["files"].as_array().and_then(|f| f.first()) {
+                            if let (Some(dl_url), Some(filename)) = (
+                                file_obj["url"].as_str(),
+                                file_obj["filename"].as_str(),
+                            ) {
+                                let _ = app.emit(
+                                    "game:progress",
+                                    serde_json::json!({
+                                        "type": format!("Установка шейдер-мода: {}", filename),
+                                        "task": 50,
+                                        "total": 100
+                                    }),
+                                );
+                                if let Ok(dl_resp) = client.get(dl_url).send().await {
+                                    if let Ok(bytes) = dl_resp.bytes().await {
+                                        let dest = mods_dir.join(filename);
+                                        let _ = fs::write(&dest, &bytes);
+                                        let _ = app.emit(
+                                            "game:log",
+                                            format!("[Iris Installer] ✅ Установлен {} ({} байт)", filename, bytes.len()),
+                                        );
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Дополнительно качаем Fabric API, если выбран загрузчик fabric
+    if loader == "fabric" {
+        let mut has_fapi = false;
+        if let Ok(entries) = fs::read_dir(&mods_dir) {
+            for entry in entries.flatten() {
+                let fname = entry.file_name().to_string_lossy().to_lowercase();
+                if fname.contains("fabric-api") && fname.ends_with(".jar") {
+                    has_fapi = true;
+                    break;
+                }
+            }
+        }
+        if !has_fapi {
+            for candidate_ver in [mc_ver, "1.21.4", "1.21.1"] {
+                let url = format!(
+                    "https://api.modrinth.com/v2/project/fabric-api/version?loaders=[\"fabric\"]&game_versions=[\"{}\"]",
+                    candidate_ver
+                );
+                if let Ok(resp) = client.get(&url).send().await {
+                    if let Ok(arr) = resp.json::<serde_json::Value>().await {
+                        if let Some(first_ver) = arr.as_array().and_then(|a| a.first()) {
+                            if let Some(file_obj) = first_ver["files"].as_array().and_then(|f| f.first()) {
+                                if let (Some(dl_url), Some(filename)) = (
+                                    file_obj["url"].as_str(),
+                                    file_obj["filename"].as_str(),
+                                ) {
+                                    if let Ok(dl_resp) = client.get(dl_url).send().await {
+                                        if let Ok(bytes) = dl_resp.bytes().await {
+                                            let _ = fs::write(mods_dir.join(filename), &bytes);
+                                            let _ = app.emit("game:log", format!("[Fabric Installer] ✅ Установлен {}", filename));
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+// --- 4. АВТОМАТИЧЕСКАЯ УСТАНОВКА ЗАГРУЗЧИКА FABRIC С ОФИЦИАЛЬНОГО META.FABRICMC.NET ---
+async fn setup_and_launch_fabric(
+    app: &AppHandle,
+    config: &LauncherConfig,
+    java_bin: &str,
+    requested_version: &str,
+    with_iris: bool,
+) -> Result<(), String> {
+    // 1. Сначала гарантируем, что базовая Vanilla-версия, её библиотеки, natives и 100% ассетов скачаны
+    let (root_dir, mut classpath_jars, actual_mc_ver, asset_id, _vanilla_main) =
+        download_vanilla_to_root(app, requested_version).await?;
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let _ = app.emit(
+        "game:log",
+        format!("[Fabric Installer] Получение последнего загрузчика Fabric для Minecraft {}...", actual_mc_ver),
+    );
+
+    let loader_list_url = format!("https://meta.fabricmc.net/v2/versions/loader/{}", actual_mc_ver);
+    let loaders_json: serde_json::Value = client
+        .get(&loader_list_url)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?
+        .json()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let loader_ver = loaders_json
+        .as_array()
+        .and_then(|arr| arr.first())
+        .and_then(|item| item["loader"]["version"].as_str())
+        .unwrap_or("0.16.10")
+        .to_string();
+
+    let profile_url = format!(
+        "https://meta.fabricmc.net/v2/versions/loader/{}/{}/profile/json",
+        actual_mc_ver, loader_ver
+    );
+    let fabric_json: serde_json::Value = client
+        .get(&profile_url)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?
+        .json()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let libs_dir = root_dir.join("libraries");
+    let mut seen: HashSet<String> = classpath_jars
+        .iter()
+        .map(|p| p.to_string_lossy().to_lowercase())
+        .collect();
+    let mut fabric_downloads: Vec<(String, PathBuf)> = Vec::new();
+
+    collect_libraries_from_json(
+        &fabric_json,
+        &libs_dir,
+        "windows",
+        &mut classpath_jars,
+        &mut seen,
+        &mut fabric_downloads,
+    );
+
+    let total_fab = fabric_downloads.len().max(1);
+    for (idx, (url, dest)) in fabric_downloads.iter().enumerate() {
+        let fname = dest.file_name().unwrap_or_default().to_string_lossy().to_string();
+        let _ = app.emit(
+            "game:progress",
+            serde_json::json!({
+                "type": format!("Fabric Lib: {}", fname),
+                "task": idx + 1,
+                "total": total_fab
+            }),
+        );
+        if let Some(p) = dest.parent() {
+            let _ = fs::create_dir_all(p);
+        }
+        let resp = client.get(&url).send().await.map_err(|e| e.to_string())?;
+        let bytes = resp.bytes().await.map_err(|e| e.to_string())?;
+        fs::write(&dest, &bytes).map_err(|e| e.to_string())?;
+    }
+
+    // 2. Если выбран профиль Iris или Iris + Fabric — автоматически ставим Sodium + Iris + Fabric API в mods/
+    if with_iris {
+        let _ = ensure_iris_and_sodium_mods(app, &root_dir, &actual_mc_ver, "fabric").await;
+    }
+
+    let main_class = fabric_json["mainClass"]
+        .as_str()
+        .unwrap_or("net.fabricmc.loader.impl.launch.knot.KnotClient")
+        .to_string();
+
+    let offline_uuid = uuid::Uuid::new_v3(
+        &uuid::Uuid::NAMESPACE_OID,
+        format!("OfflinePlayer:{}", config.username).as_bytes(),
+    )
+    .to_string();
+
+    let cp_sep = if cfg!(windows) { ";" } else { ":" };
+    let cp_string = classpath_jars
+        .iter()
+        .map(|p| p.to_string_lossy().to_string())
+        .collect::<Vec<_>>()
+        .join(cp_sep);
+
+    let natives_str = root_dir.join("natives").to_string_lossy().to_string();
+
+    let mut args: Vec<String> = Vec::new();
+    args.push("-Xms2G".to_string());
+    args.push(format!("-Xmx{}M", config.ram));
+    args.push(format!("-Djava.library.path={}", natives_str));
+    args.push(format!("-Djna.tmpdir={}", natives_str));
+    args.push(format!("-Dorg.lwjgl.system.SharedLibraryExtractPath={}", natives_str));
+    args.push(format!("-Dio.netty.native.workdir={}", natives_str));
+    args.push("-Dminecraft.launcher.brand=FenixCraft".to_string());
+    args.push("-Dminecraft.launcher.version=1.0".to_string());
+
+    for custom_arg in config.jvm_args.split_whitespace() {
+        if !custom_arg.starts_with("-Xmx") && !custom_arg.starts_with("-Xms") {
+            args.push(custom_arg.to_string());
+        }
+    }
+
+    args.push("-cp".to_string());
+    args.push(cp_string);
+    args.push(main_class);
+
+    args.extend_from_slice(&[
+        "--username".to_string(),
+        config.username.clone(),
+        "--version".to_string(),
+        actual_mc_ver,
+        "--gameDir".to_string(),
+        root_dir.to_string_lossy().to_string(),
+        "--assetsDir".to_string(),
+        root_dir.join("assets").to_string_lossy().to_string(),
+        "--assetIndex".to_string(),
+        asset_id,
+        "--uuid".to_string(),
+        offline_uuid,
+        "--accessToken".to_string(),
+        "0".to_string(),
+        "--versionType".to_string(),
+        "FenixCraft-Fabric".to_string(),
+        "--width".to_string(),
+        config.width.to_string(),
+        "--height".to_string(),
+        config.height.to_string(),
+    ]);
+
+    let _ = app.emit(
+        "game:log",
+        format!("[FenixCraft v1.0] Старт Fabric {} (Iris={}) -> Java: {}", loader_ver, with_iris, java_bin),
+    );
+
+    spawn_and_stream_jvm(app, java_bin, &args, &root_dir);
+    Ok(())
 }
 
 fn find_java_binary_in_dir(dir: &PathBuf, target_name: &str) -> Option<PathBuf> {
@@ -505,12 +1087,11 @@ async fn ensure_java_21(app: &AppHandle, custom_path: &str) -> Result<String, St
     let bytes = resp.bytes().await.map_err(|e| e.to_string())?;
     fs::write(&archive_path, &bytes).map_err(|e| e.to_string())?;
 
-    let _ = Command::new("tar")
-        .arg("-xf")
-        .arg(&archive_path)
-        .arg("-C")
-        .arg(&runtime_dir)
-        .status();
+    if cfg!(target_os = "windows") {
+        let _ = extract_zip_archive(&archive_path, &runtime_dir, false);
+    } else {
+        let _ = Command::new("tar").arg("-xf").arg(&archive_path).arg("-C").arg(&runtime_dir).status();
+    }
     let _ = fs::remove_file(&archive_path);
 
     if let Some(found) = find_java_binary_in_dir(&runtime_dir, bin_name) {
@@ -520,7 +1101,6 @@ async fn ensure_java_21(app: &AppHandle, custom_path: &str) -> Result<String, St
     Err("Не удалось найти или распаковать Java 21".to_string())
 }
 
-// --- МНОГОПОТОЧНОЕ СКАЧИВАНИЕ ВСЕХ АССЕТОВ (ИКОНОК, ШРИФТОВ, ЗВУКОВ) С CDN MOJANG ---
 async fn ensure_all_assets_downloaded(
     app: &AppHandle,
     _client: &reqwest::Client,
@@ -559,12 +1139,14 @@ async fn ensure_all_assets_downloaded(
     let official_objects_dir = get_official_mc_dir().join("assets").join("objects");
     let mut missing_items: Vec<(String, u64)> = Vec::new();
     let mut seen_hashes: HashSet<String> = HashSet::new();
+    let mut total_unique = 0usize;
 
     if let Some(objects) = idx_json["objects"].as_object() {
         for (_name, obj) in objects {
             if let Some(hash) = obj["hash"].as_str() {
                 let expected_size = obj["size"].as_u64().unwrap_or(0);
                 if hash.len() >= 2 && seen_hashes.insert(hash.to_string()) {
+                    total_unique += 1;
                     let prefix = &hash[0..2];
                     let target_file = objects_dir.join(prefix).join(hash);
 
@@ -594,16 +1176,25 @@ async fn ensure_all_assets_downloaded(
     }
 
     if missing_items.is_empty() {
+        let _ = app.emit(
+            "game:log",
+            format!(
+                "[Assets Audit] ✅ Проверено {}/{} файлов ассетов (индекс {}). Статус: 100% ДОКАЧАНЫ!",
+                total_unique, total_unique, asset_id
+            ),
+        );
         return Ok(());
     }
 
     let total = missing_items.len();
     let _ = app.emit(
         "game:log",
-        format!("[Mojang Assets] Загрузка {} недостающих файлов ресурсов...", total),
+        format!(
+            "[Mojang Assets] Найдено {} недостающих файлов из {}. Начинаем загрузку...",
+            total, total_unique
+        ),
     );
 
-    // Используем 16 стабильных потоков с проверкой размера и до 5 попыток на каждый файл
     let sem = Arc::new(tokio::sync::Semaphore::new(16));
     let done_counter = Arc::new(AtomicUsize::new(0));
     let failed_counter = Arc::new(AtomicUsize::new(0));
@@ -668,12 +1259,18 @@ async fn ensure_all_assets_downloaded(
     let failed = failed_counter.load(Ordering::Relaxed);
     if failed > 0 {
         return Err(format!(
-            "Не удалось докачать {} файлов ресурсов из-за обрыва сети. Нажмите «Играть» еще раз — лаунчер докачает оставшиеся файлы!",
+            "Не удалось докачать {} файлов ресурсов. Нажмите «Играть» еще раз для докачки!",
             failed
         ));
     }
 
-    let _ = app.emit("game:log", "[Mojang Assets] Все 100% игровых ресурсов успешно проверены и загружены!");
+    let _ = app.emit(
+        "game:log",
+        format!(
+            "[Assets Audit] ✅ Все 100% игровых ресурсов ({} из {}) успешно проверены и загружены!",
+            total_unique, total_unique
+        ),
+    );
     Ok(())
 }
 
@@ -853,6 +1450,10 @@ async fn launch_installed_neoforge(
         }
     }
 
+    if config.selected_version.contains("iris") {
+        let _ = ensure_iris_and_sodium_mods(app, &root_dir, inherits_from, "neoforge").await;
+    }
+
     let asset_index = van_json["assetIndex"]["id"]
         .as_str()
         .or_else(|| van_json["assets"].as_str())
@@ -860,7 +1461,6 @@ async fn launch_installed_neoforge(
         .to_string();
     let asset_url = van_json["assetIndex"]["url"].as_str();
 
-    // Гарантируем, что все объекты в assets/objects скачаны перед стартом!
     ensure_all_assets_downloaded(app, &client, &root_dir, &asset_index, asset_url).await?;
 
     let cp_sep = if cfg!(windows) { ";" } else { ":" };
@@ -1082,7 +1682,6 @@ async fn download_vanilla_to_root(
         fs::write(dest, &bytes).map_err(|e| e.to_string())?;
     }
 
-    // Скачиваем все недостающие иконки, шрифты, панораму и звуки в assets/objects!
     ensure_all_assets_downloaded(app, &client, &root_dir, &asset_id, asset_url).await?;
 
     for jar in &classpath_jars {
@@ -1170,18 +1769,33 @@ async fn launch_game(app: AppHandle) -> serde_json::Value {
         let root_dir = get_game_dir();
         let versions_dir = root_dir.join("versions");
 
-        let is_modded_selected = config.selected_version.contains("neoforge");
+        // 1. Синхронизируем моды, текстуры (resourcepacks) и конфиги с вашим серверным Бэкендом
+        sync_with_custom_backend(&app_clone, &root_dir, &config.selected_version, &config.backend_url).await;
 
-        if is_modded_selected {
+        // 2. Если выбран NeoForge или Iris + NeoForge
+        if config.selected_version.contains("neoforge") {
             if let Some((neo_id, neo_json_path)) = find_installed_neoforge_json(&versions_dir) {
                 if let Err(e) = launch_installed_neoforge(&app_clone, &config, &java_bin, &neo_id, &neo_json_path).await {
                     let _ = app_clone.emit("game:log", format!("[ERROR] Ошибка запуска NeoForge: {}", e));
                 }
                 let _ = app_clone.emit("game:closed", ());
                 return;
+            } else if config.selected_version.contains("iris") {
+                let _ = ensure_iris_and_sodium_mods(&app_clone, &root_dir, "1.21.1", "neoforge").await;
             }
         }
 
+        // 3. Если выбран Fabric, Iris или Iris + Fabric -> запускаем через автоустановщик Fabric + Iris
+        if config.selected_version.contains("fabric") || config.selected_version.ends_with("-iris") {
+            let with_iris = config.selected_version.contains("iris");
+            if let Err(e) = setup_and_launch_fabric(&app_clone, &config, &java_bin, &config.selected_version, with_iris).await {
+                let _ = app_clone.emit("game:log", format!("[ERROR] Ошибка запуска Fabric/Iris: {}", e));
+            }
+            let _ = app_clone.emit("game:closed", ());
+            return;
+        }
+
+        // 4. Запуск чистого Vanilla профиля
         let (work_dir, classpath_jars, mc_ver, asset_id, main_class) =
             match download_vanilla_to_root(&app_clone, &config.selected_version).await {
                 Ok(res) => res,
@@ -1276,6 +1890,7 @@ fn main() {
             get_servers_status,
             get_vk_news,
             check_twitch_live,
+            verify_assets_command,
             launch_game
         ])
         .run(tauri::generate_context!())
