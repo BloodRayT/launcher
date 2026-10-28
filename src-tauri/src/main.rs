@@ -650,7 +650,7 @@ fn ensure_default_game_options(root_dir: &PathBuf) {
             }
         }
         let default_opts = format!(
-            "lang:ru_ru\nguiScale:0\nmaxFps:260\nenableVsync:false\nrenderDistance:12\nsimulationDistance:10\ngamma:0.5\ntutorialStep:none\njoinedFirstServer:true\nresourcePacks:[{}]\n",
+            "lang:ru_ru\nguiScale:0\nmaxFps:260\nenableVsync:false\nrenderDistance:12\nsimulationDistance:10\ngamma:0.5\nnarrator:0\ntutorialStep:none\njoinedFirstServer:true\nresourcePacks:[{}]\n",
             packs.join(",")
         );
         let _ = fs::write(&options_path, default_opts);
@@ -1356,13 +1356,47 @@ fn is_lib_allowed(lib: &serde_json::Value, current_os: &str) -> bool {
                 .as_str()
                 .map(|n| n == current_os)
                 .unwrap_or(true);
-            if os_match {
+            let arch_match = rule["os"]["arch"]
+                .as_str()
+                .map(|a| {
+                    if cfg!(target_arch = "x86_64") {
+                        a == "x64" || a == "x86_64" || a == "amd64"
+                    } else if cfg!(target_arch = "aarch64") {
+                        a == "arm64" || a == "aarch64"
+                    } else {
+                        a == "x86"
+                    }
+                })
+                .unwrap_or(true);
+
+            if os_match && arch_match {
                 allowed = action == "allow";
             }
         }
         return allowed;
     }
     true
+}
+
+// Проверяет по имени файла/пути, не относится ли нативная библиотека к чужой архитектуре (ARM64 или 32-bit x86 на x64 ПК)
+fn is_wrong_native_arch(rel_path: &str, current_os: &str) -> bool {
+    let lower = rel_path.to_lowercase();
+    if current_os != "osx" && (lower.contains("java-objc-bridge") || lower.contains("natives-macos") || lower.contains("natives-osx")) {
+        return true;
+    }
+    if current_os != "linux" && lower.contains("natives-linux") {
+        return true;
+    }
+    if current_os != "windows" && lower.contains("natives-windows") {
+        return true;
+    }
+    if cfg!(target_arch = "x86_64") {
+        // На 64-битном процессоре (Ryzen 9 / Intel x64) категорически запрещаем arm64 и 32-битные x86 нативки!
+        if lower.contains("arm64") || lower.contains("aarch64") || lower.contains("natives-windows-x86") || lower.contains("natives-linux-arm") {
+            return true;
+        }
+    }
+    false
 }
 
 fn collect_libraries_from_json(
@@ -1395,7 +1429,7 @@ fn collect_libraries_from_json(
             }
 
             if let Some(rel) = rel_opt {
-                if current_os != "osx" && rel.contains("java-objc-bridge") {
+                if is_wrong_native_arch(&rel, current_os) {
                     continue;
                 }
                 let full_path = libs_dir.join(&rel);
@@ -1406,6 +1440,32 @@ fn collect_libraries_from_json(
                         if let Some(u) = url_opt {
                             if !u.is_empty() {
                                 missing_downloads.push((u, full_path));
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Поддержка старого формата classifiers.natives-windows (если встречается)
+            let classifier_key = if current_os == "windows" {
+                "natives-windows"
+            } else if current_os == "osx" {
+                "natives-macos"
+            } else {
+                "natives-linux"
+            };
+            if let Some(nat_obj) = lib["downloads"]["classifiers"][classifier_key].as_object() {
+                if let (Some(path_str), Some(url_str)) = (
+                    nat_obj.get("path").and_then(|v| v.as_str()),
+                    nat_obj.get("url").and_then(|v| v.as_str()),
+                ) {
+                    if !is_wrong_native_arch(path_str, current_os) {
+                        let full_path = libs_dir.join(path_str);
+                        let key = full_path.to_string_lossy().to_lowercase();
+                        if seen.insert(key) {
+                            classpath.push(full_path.clone());
+                            if !full_path.exists() {
+                                missing_downloads.push((url_str.to_string(), full_path));
                             }
                         }
                     }
@@ -1520,9 +1580,12 @@ async fn launch_installed_neoforge(
 
     ensure_all_assets_downloaded(app, &client, &root_dir, &asset_index, asset_url).await?;
 
+    // Очищаем папку natives_dir от старых/чужих DLL (arm64/x86) и распаковываем строго чистые x64 DLL
+    let _ = fs::remove_dir_all(&natives_dir);
+    let _ = fs::create_dir_all(&natives_dir);
     for jar in &classpath_jars {
-        let name = jar.file_name().unwrap_or_default().to_string_lossy();
-        if name.contains("natives") && jar.exists() {
+        let name = jar.file_name().unwrap_or_default().to_string_lossy().to_lowercase();
+        if name.contains("natives") && !name.contains("arm64") && !name.contains("x86") && jar.exists() {
             let _ = extract_zip_archive(jar, &natives_dir, true);
         }
     }
@@ -1750,9 +1813,12 @@ async fn download_vanilla_to_root(
 
     ensure_all_assets_downloaded(app, &client, &root_dir, &asset_id, asset_url).await?;
 
+    // Очищаем папку natives_dir от старых/чужих DLL (arm64/x86) и распаковываем строго чистые x64 DLL
+    let _ = fs::remove_dir_all(&natives_dir);
+    let _ = fs::create_dir_all(&natives_dir);
     for jar in &classpath_jars {
-        let name = jar.file_name().unwrap_or_default().to_string_lossy();
-        if name.contains("natives") && jar.exists() {
+        let name = jar.file_name().unwrap_or_default().to_string_lossy().to_lowercase();
+        if name.contains("natives") && !name.contains("arm64") && !name.contains("x86") && jar.exists() {
             let _ = extract_zip_archive(jar, &natives_dir, true);
         }
     }
@@ -1809,6 +1875,23 @@ fn spawn_and_stream_jvm(app: &AppHandle, java_bin: &str, args: &[String], work_d
 
             let status = proc.wait();
             let _ = app.emit("game:log", format!("[FenixCraft v1.0] Игра закрыта ({:?})", status));
+            // Если JVM создала hs_err_pid*.log — выводим Problematic frame прямо в консоль лаунчера
+            if let Ok(entries) = fs::read_dir(work_dir) {
+                for entry in entries.flatten() {
+                    let fname = entry.file_name().to_string_lossy().to_string();
+                    if fname.starts_with("hs_err_pid") && fname.ends_with(".log") {
+                        if let Ok(crash_txt) = fs::read_to_string(entry.path()) {
+                            for line in crash_txt.lines().take(35) {
+                                if line.contains("Problematic frame") || line.contains("EXCEPTION_") || line.contains("Command Line:") {
+                                    let msg = format!("[CRASH-DIAG] {}", line);
+                                    append_to_debug_file(&msg);
+                                    let _ = app.emit("game:log", msg);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
         Err(err) => {
             let _ = app.emit("game:log", format!("[ERROR] Ошибка старта JVM: {}", err));
@@ -1950,6 +2033,7 @@ async fn launch_game(app: AppHandle) -> serde_json::Value {
         args.push(format!("-Xmx{}M", config.ram));
         if required_java >= 25 {
             args.push("--enable-native-access=ALL-UNNAMED".to_string());
+            args.push("--sun-misc-unsafe-memory-access=allow".to_string());
         }
         args.push(format!("-Djava.library.path={}", natives_str));
         args.push(format!("-Djna.tmpdir={}", natives_str));
