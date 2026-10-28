@@ -898,9 +898,9 @@ async fn setup_and_launch_fabric(
         if let Some(p) = dest.parent() {
             let _ = fs::create_dir_all(p);
         }
-        let resp = client.get(&url).send().await.map_err(|e| e.to_string())?;
+        let resp = client.get(url).send().await.map_err(|e| e.to_string())?;
         let bytes = resp.bytes().await.map_err(|e| e.to_string())?;
-        fs::write(&dest, &bytes).map_err(|e| e.to_string())?;
+        fs::write(dest, &bytes).map_err(|e| e.to_string())?;
     }
 
     // 2. Если выбран профиль Iris или Iris + Fabric — автоматически ставим Sodium + Iris + Fabric API в mods/
