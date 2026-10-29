@@ -655,7 +655,6 @@ fn ensure_default_game_options(root_dir: &PathBuf) {
         );
         let _ = fs::write(&options_path, default_opts);
     } else if let Ok(existing) = fs::read_to_string(&options_path) {
-        // Принудительно отключаем narrator (SAPI Text2Speech вызывает 0xC0000005 на Windows сразу после загрузки unifont!)
         let mut lines: Vec<String> = Vec::new();
         let mut has_narrator = false;
         for line in existing.lines() {
@@ -1394,7 +1393,6 @@ fn is_lib_allowed(lib: &serde_json::Value, current_os: &str) -> bool {
     true
 }
 
-// Проверяет по имени файла/пути, не относится ли нативная библиотека к чужой архитектуре (ARM64 или 32-bit x86 на x64 ПК)
 fn is_wrong_native_arch(rel_path: &str, current_os: &str) -> bool {
     let lower = rel_path.to_lowercase();
     if current_os != "osx" && (lower.contains("java-objc-bridge") || lower.contains("natives-macos") || lower.contains("natives-osx")) {
@@ -1407,7 +1405,6 @@ fn is_wrong_native_arch(rel_path: &str, current_os: &str) -> bool {
         return true;
     }
     if cfg!(target_arch = "x86_64") {
-        // На 64-битном процессоре (Ryzen 9 / Intel x64) категорически запрещаем arm64 и 32-битные x86 нативки!
         if lower.contains("arm64") || lower.contains("aarch64") || lower.contains("natives-windows-x86") || lower.contains("natives-linux-arm") {
             return true;
         }
@@ -1462,7 +1459,6 @@ fn collect_libraries_from_json(
                 }
             }
 
-            // Поддержка старого формата classifiers.natives-windows (если встречается)
             let classifier_key = if current_os == "windows" {
                 "natives-windows"
             } else if current_os == "osx" {
@@ -1596,7 +1592,6 @@ async fn launch_installed_neoforge(
 
     ensure_all_assets_downloaded(app, &client, &root_dir, &asset_index, asset_url).await?;
 
-    // Очищаем папку natives_dir от старых/чужих DLL (arm64/x86) и распаковываем строго чистые x64 DLL
     let _ = fs::remove_dir_all(&natives_dir);
     let _ = fs::create_dir_all(&natives_dir);
     for jar in &classpath_jars {
@@ -1625,10 +1620,13 @@ async fn launch_installed_neoforge(
     let mut args: Vec<String> = Vec::new();
     args.push("-Xms2G".to_string());
     args.push(format!("-Xmx{}M", config.ram));
+    args.push("-Xss1M".to_string());
     args.push("-XX:HeapDumpPath=MojangTricksIntelDriversForPerformance_javaw.exe_minecraft.exe.heapdump".to_string());
+    args.push("-Dfile.encoding=UTF-8".to_string());
+    args.push("-Dsun.stdout.encoding=UTF-8".to_string());
+    args.push("-Dsun.stderr.encoding=UTF-8".to_string());
     args.push(format!("-Djava.library.path={}", natives_str));
     args.push(format!("-Djna.tmpdir={}", natives_str));
-    args.push(format!("-Dorg.lwjgl.system.SharedLibraryExtractPath={}", natives_str));
     args.push(format!("-Dio.netty.native.workdir={}", natives_str));
     args.push("-Dminecraft.launcher.brand=FenixCraft".to_string());
     args.push("-Dminecraft.launcher.version=1.0".to_string());
@@ -1829,7 +1827,6 @@ async fn download_vanilla_to_root(
 
     ensure_all_assets_downloaded(app, &client, &root_dir, &asset_id, asset_url).await?;
 
-    // Очищаем папку natives_dir от старых/чужих DLL (arm64/x86) и распаковываем строго чистые x64 DLL
     let _ = fs::remove_dir_all(&natives_dir);
     let _ = fs::create_dir_all(&natives_dir);
     for jar in &classpath_jars {
@@ -1849,106 +1846,6 @@ async fn download_vanilla_to_root(
     );
 
     Ok((root_dir, classpath_jars, actual_ver, asset_id, main_class, natives_dir, required_java))
-}
-
-
-const CURRENT_LAUNCHER_VERSION: &str = "1.0";
-
-// Проверяет наличие новой версии лаунчера на GitHub Releases или вашем Бэкенде
-#[tauri::command]
-async fn check_launcher_update() -> serde_json::Value {
-    let client = reqwest::Client::builder()
-        .user_agent("FenixCraftLauncher/1.0")
-        .timeout(Duration::from_secs(8))
-        .build()
-        .unwrap_or_default();
-
-    // 1. Проверяем ваш серверный бэкенд (/api/launcher/version)
-    let cfg = get_config();
-    let backend_ver_url = format!("{}/version", cfg.backend_url.trim_end_matches('/'));
-    if let Ok(resp) = client.get(&backend_ver_url).send().await {
-        if resp.status().is_success() {
-            if let Ok(json) = resp.json::<serde_json::Value>().await {
-                if let (Some(latest), Some(dl_url)) = (json["version"].as_str(), json["url"].as_str()) {
-                    let clean_latest = latest.trim_start_matches('v');
-                    if clean_latest != CURRENT_LAUNCHER_VERSION {
-                        return serde_json::json!({
-                            "updateAvailable": true,
-                            "latestVersion": clean_latest,
-                            "downloadUrl": dl_url
-                        });
-                    }
-                }
-            }
-        }
-    }
-
-    // 2. Проверяем официальный GitHub Releases репозитория BloodRayT/launcher
-    let gh_url = "https://api.github.com/repos/BloodRayT/launcher/releases/latest";
-    if let Ok(resp) = client.get(gh_url).send().await {
-        if resp.status().is_success() {
-            if let Ok(json) = resp.json::<serde_json::Value>().await {
-                if let Some(tag) = json["tag_name"].as_str() {
-                    let clean_tag = tag.trim_start_matches('v');
-                    if clean_tag != CURRENT_LAUNCHER_VERSION && clean_tag != "1.0.0" {
-                        let mut exe_url = json["html_url"].as_str().unwrap_or("https://github.com/BloodRayT/launcher/releases").to_string();
-                        if let Some(assets) = json["assets"].as_array() {
-                            for asset in assets {
-                                if let Some(name) = asset["name"].as_str() {
-                                    if cfg!(windows) && (name.ends_with("-setup.exe") || name.ends_with(".msi")) {
-                                        if let Some(u) = asset["browser_download_url"].as_str() {
-                                            exe_url = u.to_string();
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        return serde_json::json!({
-                            "updateAvailable": true,
-                            "latestVersion": clean_tag,
-                            "downloadUrl": exe_url
-                        });
-                    }
-                }
-            }
-        }
-    }
-
-    serde_json::json!({
-        "updateAvailable": false,
-        "latestVersion": CURRENT_LAUNCHER_VERSION
-    })
-}
-
-// Скачивает новый установщик лаунчера, запускает обновление и закрывает старую версию
-#[tauri::command]
-async fn install_launcher_update(app: AppHandle, download_url: String) -> serde_json::Value {
-    let client = reqwest::Client::builder()
-        .user_agent("FenixCraftLauncher/1.0")
-        .timeout(Duration::from_secs(120))
-        .build()
-        .unwrap_or_default();
-
-    let update_file = get_game_dir().join("FenixCraft_Update_Setup.exe");
-    let _ = app.emit("game:log", format!("[Auto-Updater] Скачивание новой версии лаунчера из {}...", download_url));
-
-    if let Ok(resp) = client.get(&download_url).send().await {
-        if resp.status().is_success() {
-            if let Ok(bytes) = resp.bytes().await {
-                if fs::write(&update_file, &bytes).is_ok() {
-                    #[cfg(target_os = "windows")]
-                    {
-                        let _ = Command::new(&update_file).spawn();
-                        std::process::exit(0);
-                    }
-                }
-            }
-        }
-    }
-
-    open_external_url(download_url);
-    serde_json::json!({ "status": "opened_in_browser" })
 }
 
 fn spawn_and_stream_jvm(app: &AppHandle, java_bin: &str, args: &[String], work_dir: &PathBuf) {
@@ -1991,7 +1888,6 @@ fn spawn_and_stream_jvm(app: &AppHandle, java_bin: &str, args: &[String], work_d
 
             let status = proc.wait();
             let _ = app.emit("game:log", format!("[FenixCraft v1.0] Игра закрыта ({:?})", status));
-            // Если JVM создала hs_err_pid*.log — выводим Problematic frame прямо в консоль лаунчера
             if let Ok(entries) = fs::read_dir(work_dir) {
                 for entry in entries.flatten() {
                     let fname = entry.file_name().to_string_lossy().to_string();
@@ -2013,6 +1909,101 @@ fn spawn_and_stream_jvm(app: &AppHandle, java_bin: &str, args: &[String], work_d
             let _ = app.emit("game:log", format!("[ERROR] Ошибка старта JVM: {}", err));
         }
     }
+}
+
+const CURRENT_LAUNCHER_VERSION: &str = "1.0";
+
+#[tauri::command]
+async fn check_launcher_update() -> serde_json::Value {
+    let client = reqwest::Client::builder()
+        .user_agent("FenixCraftLauncher/1.0")
+        .timeout(Duration::from_secs(8))
+        .build()
+        .unwrap_or_default();
+
+    let cfg = get_config();
+    let backend_ver_url = format!("{}/version", cfg.backend_url.trim_end_matches('/'));
+    if let Ok(resp) = client.get(&backend_ver_url).send().await {
+        if resp.status().is_success() {
+            if let Ok(json) = resp.json::<serde_json::Value>().await {
+                if let (Some(latest), Some(dl_url)) = (json["version"].as_str(), json["url"].as_str()) {
+                    let clean_latest = latest.trim_start_matches('v');
+                    if clean_latest != CURRENT_LAUNCHER_VERSION {
+                        return serde_json::json!({
+                            "updateAvailable": true,
+                            "latestVersion": clean_latest,
+                            "downloadUrl": dl_url
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    let gh_url = "https://api.github.com/repos/BloodRayT/launcher/releases/latest";
+    if let Ok(resp) = client.get(gh_url).send().await {
+        if resp.status().is_success() {
+            if let Ok(json) = resp.json::<serde_json::Value>().await {
+                if let Some(tag) = json["tag_name"].as_str() {
+                    let clean_tag = tag.trim_start_matches('v');
+                    if clean_tag != CURRENT_LAUNCHER_VERSION && clean_tag != "1.0.0" {
+                        let mut exe_url = json["html_url"].as_str().unwrap_or("https://github.com/BloodRayT/launcher/releases").to_string();
+                        if let Some(assets) = json["assets"].as_array() {
+                            for asset in assets {
+                                if let Some(name) = asset["name"].as_str() {
+                                    if cfg!(windows) && (name.ends_with("-setup.exe") || name.ends_with(".msi")) {
+                                        if let Some(u) = asset["browser_download_url"].as_str() {
+                                            exe_url = u.to_string();
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        return serde_json::json!({
+                            "updateAvailable": true,
+                            "latestVersion": clean_tag,
+                            "downloadUrl": exe_url
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    serde_json::json!({
+        "updateAvailable": false,
+        "latestVersion": CURRENT_LAUNCHER_VERSION
+    })
+}
+
+#[tauri::command]
+async fn install_launcher_update(app: AppHandle, download_url: String) -> serde_json::Value {
+    let client = reqwest::Client::builder()
+        .user_agent("FenixCraftLauncher/1.0")
+        .timeout(Duration::from_secs(120))
+        .build()
+        .unwrap_or_default();
+
+    let update_file = get_game_dir().join("FenixCraft_Update_Setup.exe");
+    let _ = app.emit("game:log", format!("[Auto-Updater] Скачивание новой версии лаунчера из {}...", download_url));
+
+    if let Ok(resp) = client.get(&download_url).send().await {
+        if resp.status().is_success() {
+            if let Ok(bytes) = resp.bytes().await {
+                if fs::write(&update_file, &bytes).is_ok() {
+                    #[cfg(target_os = "windows")]
+                    {
+                        let _ = Command::new(&update_file).spawn();
+                        std::process::exit(0);
+                    }
+                }
+            }
+        }
+    }
+
+    open_external_url(download_url);
+    serde_json::json!({ "status": "opened_in_browser" })
 }
 
 #[tauri::command]
@@ -2152,6 +2143,8 @@ async fn launch_game(app: AppHandle) -> serde_json::Value {
         args.push("-Dfile.encoding=UTF-8".to_string());
         args.push("-Dsun.stdout.encoding=UTF-8".to_string());
         args.push("-Dsun.stderr.encoding=UTF-8".to_string());
+        args.push("-Dauthlib.userApiService.enabled=false".to_string());
+        args.push("-Dminecraft.api.env=custom".to_string());
         if required_java >= 25 {
             args.push("--enable-native-access=ALL-UNNAMED".to_string());
             args.push("--sun-misc-unsafe-memory-access=allow".to_string());
@@ -2172,9 +2165,7 @@ async fn launch_game(app: AppHandle) -> serde_json::Value {
         args.push(cp_string);
         args.push(main_class);
 
-        // Для пиратского (offline) режима передаем валидный по формату JWT-подобный токен-заглушку (три части через точку),
-        // чтобы в Minecraft 26.3 поток RealmsClient (SignedJWT.parse) не выбрасывал RuntimeException во время загрузки главного меню!
-        let dummy_jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJibG9vZHJheXQifQ.c2lnbmF0dXJl";
+        let dummy_jwt = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJCbG9vZFJheVQiLCJuYW1lIjoiQmxvb2RSYXlUIn0.signature";
 
         args.extend_from_slice(&[
             "--username".to_string(),
@@ -2195,6 +2186,8 @@ async fn launch_game(app: AppHandle) -> serde_json::Value {
             "0".to_string(),
             "--xuid".to_string(),
             "0".to_string(),
+            "--userType".to_string(),
+            "mojang".to_string(),
             "--versionType".to_string(),
             "release".to_string(),
             "--width".to_string(),
