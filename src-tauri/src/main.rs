@@ -600,49 +600,57 @@ async fn verify_assets_command(app: AppHandle) -> serde_json::Value {
 
 #[tauri::command]
 async fn mojang_authenticate(username: String, password: String) -> serde_json::Value {
-    let client = reqwest::Client::builder().timeout(Duration::from_secs(10)).build().unwrap_or_default();
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .unwrap_or_default();
+
     let auth_payload = serde_json::json!({
         "agent": { "name": "Minecraft", "version": 1 },
         "username": username.trim(),
         "password": password,
         "requestUser": true
     });
-    if let Ok(resp) = client.post("https://authserver.ely.by/auth/authenticate").json(&auth_payload).send().await {
+
+    if let Ok(resp) = client.post("https://authserver.ely.by/auth/authenticate")
+        .json(&auth_payload)
+        .send()
+        .await
+    {
         if resp.status().is_success() {
             if let Ok(json) = resp.json::<serde_json::Value>().await {
                 let user_name = json["selectedProfile"]["name"].as_str().unwrap_or("Player").to_string();
                 let uuid = json["selectedProfile"]["id"].as_str().unwrap_or("").to_string();
                 let token = json["accessToken"].as_str().unwrap_or("").to_string();
-                return serde_json::json!({ "success": true, "username": user_name, "uuid": uuid, "token": token });
+                return serde_json::json!({
+                    "success": true,
+                    "username": user_name,
+                    "uuid": uuid,
+                    "token": token
+                });
             }
         }
     }
-    let clean_nick = if username.contains('@') { username.split('@').next().unwrap_or("Player").to_string() } else { username.trim().to_string() };
-    let generated_uuid = uuid::Uuid::new_v3(&uuid::Uuid::NAMESPACE_OID, format!("OfflinePlayer:{}", clean_nick).as_bytes()).to_string();
-    let session_token = format!("fc_lic_{}", hex::encode(Sha256::digest(format!("{}:{}", clean_nick, password).as_bytes())));
-    serde_json::json!({ "success": true, "username": clean_nick, "uuid": generated_uuid, "token": session_token })
-};
-            }
-        }
-        Err(e) => {
-            return serde_json::json!({ "success": false, "error": format!("Ошибка соединения с сервером Mojang: {}", e) });
-        }
-    }
-    serde_json::json!({ "success": false, "error": "Неизвестный ответ сервера" })
-}
 
-fn append_to_debug_file(line: &str) {
-    let root = get_game_dir();
-    let logs_dir = root.join("logs");
-    let _ = fs::create_dir_all(&logs_dir);
-    let log_file = logs_dir.join("fenixcraft-debug.log");
-    if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(&log_file) {
-        let _ = writeln!(f, "{}", line);
-    }
-    let root_log = root.join("fenixcraft-debug.log");
-    if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(&root_log) {
-        let _ = writeln!(f, "{}", line);
-    }
+    let clean_nick = if username.contains('@') {
+        username.split('@').next().unwrap_or("Player").to_string()
+    } else {
+        username.trim().to_string()
+    };
+
+    let generated_uuid = uuid::Uuid::new_v3(
+        &uuid::Uuid::NAMESPACE_OID,
+        format!("OfflinePlayer:{}", clean_nick).as_bytes(),
+    ).to_string();
+
+    let session_token = format!("fc_lic_{}", hex::encode(Sha256::digest(format!("{}:{}", clean_nick, password).as_bytes())));
+
+    serde_json::json!({
+        "success": true,
+        "username": clean_nick,
+        "uuid": generated_uuid,
+        "token": session_token
+    })
 }
 
 #[tauri::command]
