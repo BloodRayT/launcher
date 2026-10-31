@@ -1,4 +1,13 @@
 
+function updateProfileVisuals(name, typeBadge) {
+  const finalName = (name && name.trim() !== '') ? name.trim() : 'Новый игрок';
+  document.querySelectorAll('#sidebar-username, #sidebar-display-name, .user-display-name').forEach(el => { el.textContent = finalName; });
+  document.querySelectorAll('#sidebar-account-type, #sidebar-status-badge').forEach(el => { if (typeBadge) el.textContent = typeBadge; });
+  const cfgUser = document.getElementById('cfg-username');
+  if (cfgUser) cfgUser.value = finalName;
+}
+
+
 function setupProfileWidget() {
   const avatarContainer = document.getElementById('avatar-container');
   const avatarImg = document.getElementById('sidebar-avatar-img');
@@ -96,6 +105,7 @@ function setupProfileWidget() {
       }
       currentConfig.username = val;
       currentConfig.accountType = 'offline';
+      updateProfileVisuals(val, 'Пиратка');
       await window.fenixAPI.saveConfig(currentConfig);
       updateUI();
       btnSaveNick.textContent = '✅ Сохранено!';
@@ -122,6 +132,7 @@ function setupProfileWidget() {
         currentConfig.licenseToken = res.token;
         currentConfig.licenseUuid = res.uuid;
         currentConfig.accountType = 'mojang';
+        updateProfileVisuals(res.username, 'Лицензия');
         await window.fenixAPI.saveConfig(currentConfig);
         updateUI();
         btnLoginLicense.textContent = '✅ Успешно!';
