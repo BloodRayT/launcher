@@ -1,4 +1,44 @@
 
+// ==========================================
+// СИСТЕМА АВТОМАТИЧЕСКОГО ОБНОВЛЕНИЯ ЛАУНЧЕРА
+// ==========================================
+async function checkLauncherUpdatesAuto() {
+  try {
+    const res = await window.fenixAPI.checkLauncherUpdate();
+    if (res && res.updateAvailable) {
+      const modal = document.getElementById('update-modal');
+      const verLabel = document.getElementById('update-version-label');
+      const changelog = document.getElementById('update-changelog');
+      const btnNow = document.getElementById('btn-update-now');
+      const btnLater = document.getElementById('btn-update-later');
+
+      if (verLabel) verLabel.textContent = `Доступна версия v${res.latestVersion}`;
+      if (changelog && res.changelog) {
+        changelog.innerHTML = res.changelog.replace(/\n/g, '<br/>');
+      } else if (changelog) {
+        changelog.textContent = 'Улучшена стабильность, добавлены новые функции и исправления ошибок.';
+      }
+
+      if (modal) modal.classList.remove('hidden');
+
+      if (btnLater) {
+        btnLater.onclick = () => modal.classList.add('hidden');
+      }
+
+      if (btnNow) {
+        btnNow.onclick = async () => {
+          btnNow.disabled = true;
+          btnNow.textContent = 'Загрузка...';
+          await window.fenixAPI.installLauncherUpdate(res.downloadUrl);
+        };
+      }
+    }
+  } catch (err) {
+    console.error('[AutoUpdater] Ошибка проверки обновлений:', err);
+  }
+}
+
+
 function updateProfileVisuals(name, typeBadge) {
   const finalName = (name && name.trim() !== '') ? name.trim() : 'Новый игрок';
   document.querySelectorAll('#sidebar-username, #sidebar-display-name, .user-display-name').forEach(el => { el.textContent = finalName; });

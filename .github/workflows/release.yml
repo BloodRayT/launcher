@@ -1,9 +1,13 @@
-name: Build FenixCraft Launcher v1.0 (Tauri v2)
+name: Release FenixCraft Launcher
 
 on:
   push:
-    branches: [ "main" ]
+    tags:
+      - 'v*'
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build-tauri:
@@ -14,7 +18,7 @@ jobs:
       matrix:
         include:
           - platform: 'windows-latest'
-            args: '--target x86_64-pc-windows-msvc'
+            args: ''
           - platform: 'ubuntu-22.04'
             args: ''
           - platform: 'macos-latest'
@@ -24,23 +28,36 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin' || '' }}
+
       - name: Install Linux Dependencies
         if: matrix.platform == 'ubuntu-22.04'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libasound2-dev libssl-dev
 
-      - name: Install Rust Stable
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Build and Release Tauri v2
+      - name: Build and Release Tauri App
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: v1.0
-          releaseName: 'FenixCraft Launcher v1.0'
-          releaseBody: 'Официальный релиз FenixCraft Launcher v1.0 (Автозагрузка Java 21 Adoptium, прямая загрузка Vanilla с Mojang, магазин привилегий VIP/Creative/Moder/Admin/Money).'
+          tagName: ${{ github.ref_name }}
+          releaseName: 'FenixCraft Launcher ${{ github.ref_name }}'
+          releaseBody: |
+            ## Что нового в ${{ github.ref_name }} 🦅
+            - 🎨 Обновлен главный баннер лаунчера (Minecraft Adventure).
+            - 🚀 Добавлено автоматическое обновление лаунчера при выходе новых версий (OTA Auto-Updater).
+            - ⚡ Мгновенная смена и сохранение никнейма в интерфейсе без перезагрузки.
+            - 🛡️ Надежная авторизация и поддержка скинов.
+            - ☕ Встроенный автоинсталлер Java 21/25 Adoptium Hotspot.
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}

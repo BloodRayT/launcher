@@ -1999,29 +1999,10 @@ const CURRENT_LAUNCHER_VERSION: &str = "1.0.1";
 #[tauri::command]
 async fn check_launcher_update() -> serde_json::Value {
     let client = reqwest::Client::builder()
-        .user_agent("FenixCraftLauncher/1.0")
+        .user_agent("FenixCraftLauncher/1.0.1")
         .timeout(Duration::from_secs(8))
         .build()
         .unwrap_or_default();
-
-    let cfg = get_config();
-    let backend_ver_url = format!("{}/version", cfg.backend_url.trim_end_matches('/'));
-    if let Ok(resp) = client.get(&backend_ver_url).send().await {
-        if resp.status().is_success() {
-            if let Ok(json) = resp.json::<serde_json::Value>().await {
-                if let (Some(latest), Some(dl_url)) = (json["version"].as_str(), json["url"].as_str()) {
-                    let clean_latest = latest.trim_start_matches('v');
-                    if clean_latest != CURRENT_LAUNCHER_VERSION {
-                        return serde_json::json!({
-                            "updateAvailable": true,
-                            "latestVersion": clean_latest,
-                            "downloadUrl": dl_url
-                        });
-                    }
-                }
-            }
-        }
-    }
 
     let gh_url = "https://api.github.com/repos/BloodRayT/launcher/releases/latest";
     if let Ok(resp) = client.get(gh_url).send().await {
@@ -2029,12 +2010,12 @@ async fn check_launcher_update() -> serde_json::Value {
             if let Ok(json) = resp.json::<serde_json::Value>().await {
                 if let Some(tag) = json["tag_name"].as_str() {
                     let clean_tag = tag.trim_start_matches('v');
-                    if clean_tag != CURRENT_LAUNCHER_VERSION && clean_tag != "1.0.0" {
+                    if clean_tag != CURRENT_LAUNCHER_VERSION {
                         let mut exe_url = json["html_url"].as_str().unwrap_or("https://github.com/BloodRayT/launcher/releases").to_string();
                         if let Some(assets) = json["assets"].as_array() {
                             for asset in assets {
                                 if let Some(name) = asset["name"].as_str() {
-                                    if cfg!(windows) && (name.ends_with("-setup.exe") || name.ends_with(".msi")) {
+                                    if cfg!(windows) && (name.ends_with("-setup.exe") || name.ends_with(".msi") || name.ends_with(".exe")) {
                                         if let Some(u) = asset["browser_download_url"].as_str() {
                                             exe_url = u.to_string();
                                             break;
@@ -2043,10 +2024,12 @@ async fn check_launcher_update() -> serde_json::Value {
                                 }
                             }
                         }
+                        let body = json["body"].as_str().unwrap_or("Новое обновление FenixCraft Launcher!");
                         return serde_json::json!({
                             "updateAvailable": true,
                             "latestVersion": clean_tag,
-                            "downloadUrl": exe_url
+                            "downloadUrl": exe_url,
+                            "changelog": body
                         });
                     }
                 }
@@ -2058,6 +2041,7 @@ async fn check_launcher_update() -> serde_json::Value {
         "updateAvailable": false,
         "latestVersion": CURRENT_LAUNCHER_VERSION
     })
+}
 }
 
 #[tauri::command]

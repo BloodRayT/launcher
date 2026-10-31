@@ -402,5 +402,25 @@
   </div>
 
   <script src="renderer.js"></script>
+<!-- МОДАЛЬНОЕ ОКНО АВТООБНОВЛЕНИЯ ЛАУНЧЕРА -->
+  <div id="update-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div class="glass-card bg-[#0b1219] border border-emerald-500/30 rounded-2xl p-6 max-w-md w-full shadow-2xl space-y-4">
+      <div class="flex items-center space-x-3">
+        <div class="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-xl">🚀</div>
+        <div>
+          <h3 class="text-base font-bold text-white">Доступно обновление лаунчера!</h3>
+          <p id="update-version-label" class="text-xs text-emerald-400 font-medium">Версия v1.0.1</p>
+        </div>
+      </div>
+      <div class="bg-black/40 rounded-xl p-3 border border-white/5 text-xs text-slate-300 space-y-1.5 max-h-40 overflow-y-auto" id="update-changelog">
+        Загрузка списка изменений...
+      </div>
+      <div class="flex items-center justify-end space-x-2 pt-2">
+        <button id="btn-update-later" class="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white transition">Позже</button>
+        <button id="btn-update-now" class="px-5 py-2 text-xs font-bold bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl shadow-lg shadow-emerald-500/20 active:scale-95 transition">Обновить сейчас</button>
+      </div>
+    </div>
+  </div>
+
 </body>
 </html>
