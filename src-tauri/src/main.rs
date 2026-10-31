@@ -25,6 +25,55 @@ struct ServerConfigItem {
     max_default: u32,
 }
 
+fn default_account_type() -> String { "offline".to_string() }
+fn default_ram() -> u32 { 6144 }
+fn default_width() -> u32 { 1280 }
+fn default_height() -> u32 { 720 }
+fn default_selected_version() -> String { "latest-vanilla".to_string() }
+fn default_selected_server() -> String { "play.fenixcraft.ru".to_string() }
+fn default_backend_url() -> String { "https://fenixcraft.ru/api/launcher".to_string() }
+
+fn default_servers_list() -> Vec<ServerConfigItem> {
+    vec![
+        ServerConfigItem {
+            id: "fenix-main".to_string(),
+            name: "FenixCraft".to_string(),
+            desc: "Выживание • Vanilla/Mods".to_string(),
+            ip: "play.fenixcraft.ru".to_string(),
+            port: 25565,
+            icon: "🦅".to_string(),
+            max_default: 1000,
+        },
+        ServerConfigItem {
+            id: "fenix-mods".to_string(),
+            name: "FenixTech".to_string(),
+            desc: "NeoForge • 1.21.1".to_string(),
+            ip: "tech.fenixcraft.ru".to_string(),
+            port: 25565,
+            icon: "⚙️".to_string(),
+            max_default: 500,
+        },
+        ServerConfigItem {
+            id: "fenix-rpg".to_string(),
+            name: "FenixRPG".to_string(),
+            desc: "Fabric + Iris • 1.21.11".to_string(),
+            ip: "rpg.fenixcraft.ru".to_string(),
+            port: 25565,
+            icon: "⚔️".to_string(),
+            max_default: 500,
+        },
+        ServerConfigItem {
+            id: "fenix-pvp".to_string(),
+            name: "FenixArena".to_string(),
+            desc: "Анархия • 1.21.11".to_string(),
+            ip: "pvp.fenixcraft.ru".to_string(),
+            port: 25565,
+            icon: "⭐".to_string(),
+            max_default: 300,
+        },
+    ]
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 struct LauncherConfig {
@@ -65,13 +114,6 @@ struct LauncherConfig {
     #[serde(default)]
     license_uuid: String,
 }
-
-fn default_account_type() -> String { "offline".to_string() }
-fn default_ram() -> u32 { 6144 }
-fn default_width() -> u32 { 1280 }
-fn default_height() -> u32 { 720 }
-fn default_selected_version() -> String { "latest-vanilla".to_string() }
-fn default_selected_server() -> String { "play.fenixcraft.ru".to_string() }
 
 impl Default for LauncherConfig {
     fn default() -> Self {
