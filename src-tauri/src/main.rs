@@ -598,6 +598,20 @@ async fn verify_assets_command(app: AppHandle) -> serde_json::Value {
 }
 
 
+fn append_to_debug_file(line: &str) {
+    let root = get_game_dir();
+    let logs_dir = root.join("logs");
+    let _ = fs::create_dir_all(&logs_dir);
+    let log_file = logs_dir.join("fenixcraft-debug.log");
+    if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(&log_file) {
+        let _ = writeln!(f, "{}", line);
+    }
+    let root_log = root.join("fenixcraft-debug.log");
+    if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(&root_log) {
+        let _ = writeln!(f, "{}", line);
+    }
+}
+
 #[tauri::command]
 async fn mojang_authenticate(username: String, password: String) -> serde_json::Value {
     let client = reqwest::Client::builder()
