@@ -1,3 +1,142 @@
+
+function setupProfileWidget() {
+  const avatarContainer = document.getElementById('avatar-container');
+  const avatarImg = document.getElementById('sidebar-avatar-img');
+  const avatarInput = document.getElementById('avatar-file-input');
+  const accTypeSelect = document.getElementById('sidebar-acc-type');
+  const offlineBox = document.getElementById('sidebar-offline-box');
+  const licenseBox = document.getElementById('sidebar-license-box');
+  const nickInput = document.getElementById('sidebar-nick-input');
+  const btnSaveNick = document.getElementById('btn-sidebar-save-nick');
+  const licenseLogin = document.getElementById('sidebar-license-login');
+  const licensePass = document.getElementById('sidebar-license-pass');
+  const btnLoginLicense = document.getElementById('btn-sidebar-login-license');
+  const authMsg = document.getElementById('sidebar-auth-msg');
+  const usernameEl = document.getElementById('sidebar-username');
+  const accountTypeEl = document.getElementById('sidebar-account-type');
+
+  if (currentConfig.avatarData && avatarImg) {
+    avatarImg.src = currentConfig.avatarData;
+  }
+
+  if (avatarContainer && avatarInput) {
+    avatarContainer.onclick = () => avatarInput.click();
+    avatarInput.onchange = (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      if (file.size > 2 * 1024 * 1024) {
+        if (authMsg) authMsg.textContent = 'Файл больше 2 МБ!';
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const img = new Image();
+        img.onload = async () => {
+          const canvas = document.createElement('canvas');
+          canvas.width = 128;
+          canvas.height = 128;
+          const ctx = canvas.getContext('2d');
+          const minSide = Math.min(img.width, img.height);
+          ctx.drawImage(img, (img.width - minSide)/2, (img.height - minSide)/2, minSide, minSide, 0, 0, 128, 128);
+          const b64 = canvas.toDataURL('image/webp', 0.85);
+          if (avatarImg) avatarImg.src = b64;
+          currentConfig.avatarData = b64;
+          await window.fenixAPI.saveConfig(currentConfig);
+          if (authMsg) authMsg.textContent = 'Аватарка сохранена!';
+          setTimeout(() => { if (authMsg) authMsg.textContent = ''; }, 2000);
+        };
+        img.src = ev.target?.result;
+      };
+      reader.readAsDataURL(file);
+    };
+  }
+
+  const updateUI = () => {
+    const isMojang = currentConfig.accountType === 'mojang';
+    if (accTypeSelect) accTypeSelect.value = isMojang ? 'mojang' : 'offline';
+    if (isMojang) {
+      offlineBox?.classList.add('hidden');
+      licenseBox?.classList.remove('hidden');
+      if (accountTypeEl) accountTypeEl.textContent = 'Лицензия';
+    } else {
+      offlineBox?.classList.remove('hidden');
+      licenseBox?.classList.add('hidden');
+      if (accountTypeEl) accountTypeEl.textContent = 'Пиратка';
+    }
+
+    const name = (currentConfig.username && currentConfig.username.trim() !== '') ? currentConfig.username : 'Новый игрок';
+    if (usernameEl) usernameEl.textContent = name;
+    if (nickInput && !isMojang) nickInput.value = currentConfig.username || '';
+    if (licenseLogin && isMojang) licenseLogin.value = currentConfig.licenseLogin || '';
+
+    const cfgUser = document.getElementById('cfg-username');
+    if (cfgUser && currentConfig.username) cfgUser.value = currentConfig.username;
+  };
+
+  updateUI();
+
+  if (accTypeSelect) {
+    accTypeSelect.onchange = () => {
+      if (accTypeSelect.value === 'mojang') {
+        offlineBox?.classList.add('hidden');
+        licenseBox?.classList.remove('hidden');
+      } else {
+        offlineBox?.classList.remove('hidden');
+        licenseBox?.classList.add('hidden');
+      }
+    };
+  }
+
+  if (btnSaveNick && nickInput) {
+    btnSaveNick.onclick = async () => {
+      const val = nickInput.value.trim();
+      if (!val) {
+        if (authMsg) authMsg.textContent = 'Введите никнейм!';
+        return;
+      }
+      currentConfig.username = val;
+      currentConfig.accountType = 'offline';
+      await window.fenixAPI.saveConfig(currentConfig);
+      updateUI();
+      btnSaveNick.textContent = '✅ Сохранено!';
+      if (authMsg) authMsg.textContent = `Ник сохранен: ${val}`;
+      setTimeout(() => { btnSaveNick.textContent = 'Сохранить ник'; if (authMsg) authMsg.textContent = ''; }, 2500);
+    };
+  }
+
+  if (btnLoginLicense && licenseLogin && licensePass) {
+    btnLoginLicense.onclick = async () => {
+      const login = licenseLogin.value.trim();
+      const pass = licensePass.value.trim();
+      if (!login || !pass) {
+        if (authMsg) authMsg.textContent = 'Введите логин и пароль!';
+        return;
+      }
+      btnLoginLicense.textContent = 'Подключение...';
+      if (authMsg) authMsg.textContent = 'Связь с Mojang...';
+
+      const res = await window.fenixAPI.mojangAuth(login, pass);
+      if (res && res.success) {
+        currentConfig.username = res.username;
+        currentConfig.licenseLogin = login;
+        currentConfig.licenseToken = res.token;
+        currentConfig.licenseUuid = res.uuid;
+        currentConfig.accountType = 'mojang';
+        await window.fenixAPI.saveConfig(currentConfig);
+        updateUI();
+        btnLoginLicense.textContent = '✅ Успешно!';
+        if (authMsg) authMsg.textContent = `Лицензия: ${res.username}`;
+        licensePass.value = '';
+        setTimeout(() => { btnLoginLicense.textContent = 'Войти (Mojang)'; }, 2500);
+      } else {
+        btnLoginLicense.textContent = 'Ошибка входа';
+        if (authMsg) authMsg.textContent = res.error || 'Неверный логин/пароль';
+        setTimeout(() => { btnLoginLicense.textContent = 'Войти (Mojang)'; }, 3000);
+      }
+    };
+  }
+}
+
 const tauriCore = window.__TAURI__?.core;
 const tauriEvent = window.__TAURI__?.event;
 const tauriDialog = window.__TAURI__?.dialog;

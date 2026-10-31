@@ -106,47 +106,42 @@
         </button>
       </nav>
 
-            <!-- БЛОК ПРОФИЛЯ ИГРОКА (АВАТАРКА, ПИРАТКА/ЛИЦЕНЗИЯ, ВВОД НИКНЕЙМА) -->
+                  <!-- БЛОК ПРОФИЛЯ ИГРОКА -->
       <div class="p-3 rounded-xl glass-card space-y-2.5 w-full overflow-hidden shrink-0">
-        <!-- Аватарка со сменой по клику -->
         <div class="flex items-center space-x-3">
-          <div class="relative group cursor-pointer shrink-0" id="avatar-container" title="Нажмите, чтобы изменить аватарку">
-            <img id="sidebar-avatar-img" src="logo.png" alt="Аватарка" class="w-12 h-12 rounded-full object-cover border-2 border-emerald-500/60 shadow group-hover:brightness-75 transition" />
-            <div class="absolute inset-0 rounded-full bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition text-white text-xs font-bold">
-              📷
-            </div>
+          <div class="relative group cursor-pointer shrink-0" id="avatar-container" title="Нажмите для смены аватарки">
+            <img id="sidebar-avatar-img" src="logo.png" alt="Аватарка" class="w-11 h-11 rounded-full object-cover border-2 border-emerald-500/70 shadow group-hover:brightness-75 transition" />
+            <div class="absolute inset-0 rounded-full bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition text-white text-xs">📷</div>
           </div>
           <input type="file" id="avatar-file-input" accept="image/*" class="hidden" />
           <div class="overflow-hidden flex-1 min-w-0">
-            <div id="sidebar-display-name" class="text-xs font-bold text-white truncate">Новый игрок</div>
-            <div class="flex items-center space-x-1 text-[11px] text-emerald-400">
+            <div id="sidebar-username" class="text-xs font-bold text-white truncate">Новый игрок</div>
+            <div class="flex items-center space-x-1.5 text-[11px] text-emerald-400">
               <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-              <span id="sidebar-account-badge">Пиратка</span>
+              <span id="sidebar-account-type">Пиратка</span>
             </div>
           </div>
         </div>
 
-        <!-- Выбор: Пиратка или Лицензия -->
-        <select id="sidebar-acc-type" class="w-full bg-[#080d11] border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-emerald-500">
+        <select id="sidebar-acc-type" class="w-full bg-[#080d11] border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-emerald-500 cursor-pointer">
           <option value="offline">Пиратка (Свободный вход)</option>
           <option value="mojang">Лицензия (Mojang / MS)</option>
         </select>
 
         <!-- Поля для Пиратки -->
         <div id="sidebar-offline-box" class="space-y-1.5 w-full">
-          <input id="sidebar-nick-input" type="text" placeholder="Введите ваш никнейм" class="w-full bg-[#080d11] border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 truncate" />
+          <input id="sidebar-nick-input" type="text" placeholder="Введите ваш никнейм" class="w-full bg-[#080d11] border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500" />
           <button id="btn-sidebar-save-nick" class="w-full bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-slate-950 font-bold text-xs py-1.5 rounded-lg transition shadow">Сохранить ник</button>
         </div>
 
         <!-- Поля для Лицензии -->
         <div id="sidebar-license-box" class="space-y-1.5 w-full hidden">
-          <input id="sidebar-license-login" type="text" placeholder="Логин или Email" class="w-full bg-[#080d11] border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 truncate" />
-          <input id="sidebar-license-pass" type="password" placeholder="Пароль учетной записи" class="w-full bg-[#080d11] border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 truncate" />
+          <input id="sidebar-license-login" type="text" placeholder="Логин или Email" class="w-full bg-[#080d11] border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500" />
+          <input id="sidebar-license-pass" type="password" placeholder="Пароль учетной записи" class="w-full bg-[#080d11] border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500" />
           <button id="btn-sidebar-login-license" class="w-full bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-slate-950 font-bold text-xs py-1.5 rounded-lg transition shadow">Войти (Mojang)</button>
         </div>
 
-        <!-- Статус блок -->
-        <div id="sidebar-auth-msg" class="text-[10px] text-center text-slate-400 truncate"></div>
+        <div id="sidebar-auth-msg" class="text-[10px] text-center text-slate-400 truncate min-h-[14px]"></div>
       </div>
     </aside>
 
