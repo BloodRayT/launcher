@@ -95,9 +95,6 @@ impl Default for LauncherConfig {
             license_token: String::new(),
             license_uuid: String::new(),
         }
-    }
-}
-}
 
 #[derive(Deserialize)]
 struct ServerItem {
