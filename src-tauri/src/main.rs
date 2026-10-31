@@ -28,16 +28,27 @@ struct ServerConfigItem {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 struct LauncherConfig {
+    #[serde(default)]
     username: String,
+    #[serde(default = "default_account_type")]
     account_type: String,
+    #[serde(default = "default_ram")]
     ram: u32,
+    #[serde(default = "default_width")]
     width: u32,
+    #[serde(default = "default_height")]
     height: u32,
+    #[serde(default)]
     java_path: String,
+    #[serde(default)]
     jvm_args: String,
+    #[serde(default)]
     show_console: bool,
+    #[serde(default)]
     debug_mode: bool,
+    #[serde(default = "default_selected_version")]
     selected_version: String,
+    #[serde(default = "default_selected_server")]
     selected_server: String,
     #[serde(default)]
     vk_token: String,
@@ -45,7 +56,22 @@ struct LauncherConfig {
     backend_url: String,
     #[serde(default = "default_servers_list")]
     custom_servers: Vec<ServerConfigItem>,
+    #[serde(default)]
+    avatar_data: String,
+    #[serde(default)]
+    license_login: String,
+    #[serde(default)]
+    license_token: String,
+    #[serde(default)]
+    license_uuid: String,
 }
+
+fn default_account_type() -> String { "offline".to_string() }
+fn default_ram() -> u32 { 6144 }
+fn default_width() -> u32 { 1280 }
+fn default_height() -> u32 { 720 }
+fn default_selected_version() -> String { "latest-vanilla".to_string() }
+fn default_selected_server() -> String { "play.fenixcraft.ru".to_string() }
 
 fn default_backend_url() -> String {
     "https://fenixcraft.ru/api/launcher".to_string()
@@ -95,7 +121,7 @@ fn default_servers_list() -> Vec<ServerConfigItem> {
 impl Default for LauncherConfig {
     fn default() -> Self {
         Self {
-            username: "BloodRayT".to_string(),
+            username: "".to_string(),
             account_type: "offline".to_string(),
             ram: 6144,
             width: 1280,
@@ -568,6 +594,58 @@ async fn verify_assets_command(app: AppHandle) -> serde_json::Value {
         "missing": missing_count,
         "percent": percent
     })
+}
+
+
+#[tauri::command]
+async fn mojang_authenticate(username: String, password: String) -> serde_json::Value {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(12))
+        .build()
+        .unwrap_or_default();
+
+    let body = serde_json::json!({
+        "agent": {
+            "name": "Minecraft",
+            "version": 1
+        },
+        "username": username,
+        "password": password,
+        "requestUser": true
+    });
+
+    match client.post("https://authserver.mojang.com/authenticate")
+        .json(&body)
+        .send()
+        .await
+    {
+        Ok(resp) => {
+            if resp.status().is_success() {
+                if let Ok(json) = resp.json::<serde_json::Value>().await {
+                    let user_name = json["selectedProfile"]["name"].as_str().unwrap_or("Player").to_string();
+                    let uuid = json["selectedProfile"]["id"].as_str().unwrap_or("").to_string();
+                    let token = json["accessToken"].as_str().unwrap_or("").to_string();
+                    return serde_json::json!({
+                        "success": true,
+                        "username": user_name,
+                        "uuid": uuid,
+                        "token": token
+                    });
+                }
+            } else {
+                let err_msg = if let Ok(err_json) = resp.json::<serde_json::Value>().await {
+                    err_json["errorMessage"].as_str().unwrap_or("Неверный логин или пароль").to_string()
+                } else {
+                    "Ошибка авторизации Mojang (401)".to_string()
+                };
+                return serde_json::json!({ "success": false, "error": err_msg });
+            }
+        }
+        Err(e) => {
+            return serde_json::json!({ "success": false, "error": format!("Ошибка соединения с сервером Mojang: {}", e) });
+        }
+    }
+    serde_json::json!({ "success": false, "error": "Неизвестный ответ сервера" })
 }
 
 fn append_to_debug_file(line: &str) {
@@ -2229,6 +2307,7 @@ fn main() {
             save_debug_log,
             check_launcher_update,
             install_launcher_update,
+            mojang_authenticate,
             launch_game
         ])
         .run(tauri::generate_context!())

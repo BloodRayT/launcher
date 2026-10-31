@@ -48,6 +48,7 @@ window.fenixAPI = {
   verifyAssets: () => tauriCore ? tauriCore.invoke('verify_assets_command') : Promise.resolve({ ok: true }),
   checkLauncherUpdate: () => tauriCore ? tauriCore.invoke('check_launcher_update') : Promise.resolve({ updateAvailable: false }),
   installLauncherUpdate: (downloadUrl) => tauriCore ? tauriCore.invoke('install_launcher_update', { downloadUrl }) : Promise.resolve(),
+  mojangAuth: (username, password) => tauriCore ? tauriCore.invoke('mojang_authenticate', { username, password }) : Promise.resolve({ success: false, error: 'Tauri недоступен' }),
   saveDebugLog: (consoleText, customPath) => tauriCore ? tauriCore.invoke('save_debug_log', { consoleText, customPath }) : Promise.resolve({ success: false }),
   launchGame: () => tauriCore ? tauriCore.invoke('launch_game') : Promise.resolve({ status: 'launched' }),
   onLog: (cb) => tauriEvent?.listen('game:log', (event) => cb(event.payload)),
@@ -541,6 +542,137 @@ async function checkForLauncherUpdates() {
   } catch (e) {}
 }
 
+
+// --- УПРАВЛЕНИЕ БЛОКОМ ИГРОКА (АВАТАРКА, ПИРАТКА / ЛИЦЕНЗИЯ, СОХРАНЕНИЕ) ---
+function setupProfileBlock() {
+  const avatarContainer = document.getElementById('avatar-container');
+  const avatarImg = document.getElementById('sidebar-avatar-img');
+  const avatarInput = document.getElementById('avatar-file-input');
+  const accTypeSelect = document.getElementById('sidebar-acc-type');
+  const offlineBox = document.getElementById('sidebar-offline-box');
+  const licenseBox = document.getElementById('sidebar-license-box');
+  const nickInput = document.getElementById('sidebar-nick-input');
+  const btnSaveNick = document.getElementById('btn-sidebar-save-nick');
+  const licenseLogin = document.getElementById('sidebar-license-login');
+  const licensePass = document.getElementById('sidebar-license-pass');
+  const btnLoginLicense = document.getElementById('btn-sidebar-login-license');
+  const displayName = document.getElementById('sidebar-display-name');
+  const accBadge = document.getElementById('sidebar-account-badge');
+  const authMsg = document.getElementById('sidebar-auth-msg');
+
+  if (currentConfig.avatarData && avatarImg) {
+    avatarImg.src = currentConfig.avatarData;
+  }
+
+  if (avatarContainer && avatarInput) {
+    avatarContainer.onclick = () => avatarInput.click();
+    avatarInput.onchange = (e) => {
+      const file = e.target.files?.[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = async (ev) => {
+          const b64 = ev.target?.result;
+          if (b64 && avatarImg) {
+            avatarImg.src = b64;
+            currentConfig.avatarData = b64;
+            await window.fenixAPI.saveConfig(currentConfig);
+            if (authMsg) authMsg.textContent = 'Аватарка обновлена!';
+          }
+        };
+        reader.readAsDataURL(file);
+      }
+    };
+  }
+
+  const isMojang = currentConfig.accountType === 'mojang';
+  if (accTypeSelect) {
+    accTypeSelect.value = isMojang ? 'mojang' : 'offline';
+    accTypeSelect.onchange = () => {
+      const val = accTypeSelect.value;
+      if (val === 'mojang') {
+        offlineBox?.classList.add('hidden');
+        licenseBox?.classList.remove('hidden');
+      } else {
+        offlineBox?.classList.remove('hidden');
+        licenseBox?.classList.add('hidden');
+      }
+    };
+  }
+
+  if (isMojang) {
+    offlineBox?.classList.add('hidden');
+    licenseBox?.classList.remove('hidden');
+    if (licenseLogin) licenseLogin.value = currentConfig.licenseLogin || '';
+  } else {
+    offlineBox?.classList.remove('hidden');
+    licenseBox?.classList.add('hidden');
+    if (nickInput) nickInput.value = currentConfig.username || '';
+  }
+
+  const updateLabels = () => {
+    if (displayName) {
+      displayName.textContent = currentConfig.username && currentConfig.username.trim() !== '' 
+        ? currentConfig.username 
+        : 'Новый игрок';
+    }
+    if (accBadge) {
+      accBadge.textContent = currentConfig.accountType === 'mojang' ? 'Лицензия' : 'Пиратка';
+    }
+    const cfgUser = document.getElementById('cfg-username');
+    if (cfgUser && currentConfig.username) cfgUser.value = currentConfig.username;
+  };
+  updateLabels();
+
+  if (btnSaveNick && nickInput) {
+    btnSaveNick.onclick = async () => {
+      const val = nickInput.value.trim();
+      if (!val) {
+        if (authMsg) authMsg.textContent = 'Введите никнейм!';
+        return;
+      }
+      currentConfig.username = val;
+      currentConfig.accountType = 'offline';
+      await window.fenixAPI.saveConfig(currentConfig);
+      updateLabels();
+      btnSaveNick.textContent = '✅ Сохранено!';
+      if (authMsg) authMsg.textContent = `Ник сохранен: ${val}`;
+      setTimeout(() => { btnSaveNick.textContent = 'Сохранить ник'; }, 2000);
+    };
+  }
+
+  if (btnLoginLicense && licenseLogin && licensePass) {
+    btnLoginLicense.onclick = async () => {
+      const login = licenseLogin.value.trim();
+      const pass = licensePass.value.trim();
+      if (!login || !pass) {
+        if (authMsg) authMsg.textContent = 'Введите логин и пароль!';
+        return;
+      }
+      btnLoginLicense.textContent = 'Подключение...';
+      if (authMsg) authMsg.textContent = 'Связь с серверами Mojang...';
+
+      const res = await window.fenixAPI.mojangAuth(login, pass);
+      if (res && res.success) {
+        currentConfig.username = res.username;
+        currentConfig.licenseLogin = login;
+        currentConfig.licenseToken = res.token;
+        currentConfig.licenseUuid = res.uuid;
+        currentConfig.accountType = 'mojang';
+        await window.fenixAPI.saveConfig(currentConfig);
+        updateLabels();
+        btnLoginLicense.textContent = '✅ Вход выполнен!';
+        if (authMsg) authMsg.textContent = `Успешно: ${res.username}`;
+        licensePass.value = '';
+        setTimeout(() => { btnLoginLicense.textContent = 'Войти (Mojang)'; }, 2000);
+      } else {
+        btnLoginLicense.textContent = 'Ошибка входа';
+        if (authMsg) authMsg.textContent = res.error || 'Ошибка входа';
+        setTimeout(() => { btnLoginLicense.textContent = 'Войти (Mojang)'; }, 3000);
+      }
+    };
+  }
+}
+
 (async () => {
   await bindSettings();
   renderShop();
@@ -548,6 +680,7 @@ async function checkForLauncherUpdates() {
   await refreshServers();
   await updateTwitchStatus();
   await checkForLauncherUpdates();
+  setupProfileBlock();
   setInterval(updateTwitchStatus, 30000);
   setInterval(refreshServers, 30000);
 })();
