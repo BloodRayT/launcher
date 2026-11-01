@@ -51,7 +51,7 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'FenixCraft Launcher ${{ github.ref_name }}'
-                    releaseBody: |
+          releaseBody: |
             ## Что нового в ${{ github.ref_name }} 🦅
             - 🎨 **Новый Hero-баннер:** Главный экран лаунчера теперь украшен официальным артом Minecraft Adventure (`baner.png`).
             - 📺 **Встроенный плеер Twitch:** Клик по вкладке Twitch теперь открывает стрим канала `BloodRayT` прямо внутри лаунчера без браузера!
