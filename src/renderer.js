@@ -1,4 +1,42 @@
 
+// Автоматическая установка версии из ядра Tauri
+async function syncLauncherVersionUI() {
+  try {
+    const ver = tauriCore ? await tauriCore.invoke('get_app_version') : '1.0.1';
+    const badge = document.getElementById('app-version-badge');
+    if (badge) badge.textContent = `v${ver}`;
+    document.querySelectorAll('.app-version-text').forEach(el => el.textContent = `v${ver}`);
+  } catch (e) {
+    const badge = document.getElementById('app-version-badge');
+    if (badge) badge.textContent = 'v1.0.1';
+  }
+}
+
+// Переключение на встроенный плеер Twitch
+function setupTwitchTabHandler() {
+  const twitchNavBtn = document.querySelector('button[data-tab="twitch"]') || document.getElementById('nav-twitch');
+  if (twitchNavBtn) {
+    twitchNavBtn.onclick = (e) => {
+      e.preventDefault();
+      // Скрываем все остальные вкладки
+      document.querySelectorAll('main').forEach(m => m.classList.add('hidden'));
+      const twitchTab = document.getElementById('tab-twitch');
+      if (twitchTab) {
+        twitchTab.classList.remove('hidden');
+        twitchTab.style.display = 'flex';
+      }
+      // Подсвечиваем активную кнопку в сайдбаре
+      document.querySelectorAll('aside nav button').forEach(b => {
+        b.classList.remove('bg-white/10', 'text-white');
+        b.classList.add('text-slate-400');
+      });
+      twitchNavBtn.classList.remove('text-slate-400');
+      twitchNavBtn.classList.add('bg-white/10', 'text-white');
+    };
+  }
+}
+
+
 // ==========================================
 // СИСТЕМА АВТОМАТИЧЕСКОГО ОБНОВЛЕНИЯ ЛАУНЧЕРА
 // ==========================================
