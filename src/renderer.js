@@ -1,4 +1,46 @@
 
+// Перехват кнопки Twitch в сайдбаре: открытие встроенного плеера
+function bindTwitchNativeTab() {
+  const twitchBtns = document.querySelectorAll('button[data-tab="twitch"], #nav-twitch, button:has(span:contains("Twitch"))');
+  // Находим кнопку Twitch в боковой навигации
+  const allNavBtns = document.querySelectorAll('aside nav button');
+  let tBtn = null;
+  allNavBtns.forEach(btn => {
+    if (btn.textContent.includes('Twitch') || btn.getAttribute('data-tab') === 'twitch') {
+      tBtn = btn;
+    }
+  });
+
+  if (tBtn) {
+    tBtn.onclick = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      // Скрываем все вкладки
+      document.querySelectorAll('main').forEach(m => {
+        m.classList.add('hidden');
+        m.style.display = 'none';
+      });
+
+      // Показываем встроенный Twitch
+      const twTab = document.getElementById('tab-twitch');
+      if (twTab) {
+        twTab.classList.remove('hidden');
+        twTab.style.display = 'flex';
+      }
+
+      // Переключаем активный стиль кнопки
+      allNavBtns.forEach(b => {
+        b.classList.remove('bg-white/10', 'text-white');
+        b.classList.add('text-slate-400');
+      });
+      tBtn.classList.remove('text-slate-400');
+      tBtn.classList.add('bg-white/10', 'text-white');
+    };
+  }
+}
+
+
 // Автоматическая установка версии из ядра Tauri
 async function syncLauncherVersionUI() {
   try {
