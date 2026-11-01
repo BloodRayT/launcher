@@ -1,6 +1,6 @@
 [package]
 name = "fenixcraft-launcher"
-version = "1.0.5"
+version = "1.0.6"
 description = "Official FenixCraft Launcher v1.0 (Tauri v2)"
 authors = ["BloodRayT"]
 edition = "2021"
