@@ -62,3 +62,57 @@
 1. **Rust:** Установленный компилятор Rust (`rustup`):
    ```bash
    curl --proto '=https' --tlsv1.2 -sSf [https://sh.rustup.rs](https://sh.rustup.rs) | sh
+
+
+Node.js: Версия 18+ и пакетный менеджер npm.
+
+Системные зависимости (только для Linux):
+sudo apt-get update && sudo apt-get install -y \
+  libwebkit2gtk-4.1-dev \
+  libappindicator3-dev \
+  librsvg2-dev \
+  patchelf \
+  libasound2-dev \
+  libssl-dev
+
+Установка Tauri CLI и запуск dev-режима
+# Клонирование репозитория
+git clone [https://github.com/BloodRayT/launcher.git](https://github.com/BloodRayT/launcher.git)
+cd launcher
+
+# Установка Tauri v2 CLI глобально
+npm install -g @tauri-apps/cli@v2
+
+# Проверка окружения
+cargo check --manifest-path src-tauri/Cargo.toml
+
+# Запуск в режиме разработки
+tauri dev
+
+Сборка релизного пакета
+# Сборка бинарников и установщиков под текущую ОС (.exe, .deb, .dmg)
+tauri build
+
+📂 Структура репозитория
+launcher/
+├── .github/
+│   └── workflows/
+│       └── release.yml        # CI/CD пайплайн сборки мультплатформенных релизов
+├── src/
+│   ├── index.html             # Главный интерфейс лаунчера
+│   ├── renderer.js            # Логика UI, событий и взаимодействия с Tauri API
+│   ├── baner.png              # Главный hero-баннер
+│   └── logo.png               # Логотип проекта
+├── src-tauri/
+│   ├── src/
+│   │   └── main.rs            # Ядро лаунчера (JVM launcher, Java installer, auth, assets audit)
+│   ├── Cargo.toml             # Зависимости Rust и настройки пакета
+│   └── tauri.conf.json        # Конфигурация окна, бандлера и безопасности Tauri
+└── README.md
+
+🤝 Сообщество и контакты
+Официальный сайт: fenixcraft.ru
+Сообщество ВКонтакте: vk.com/fenixcraft
+Twitch канал: twitch.tv/bloodrayt
+IP сервера для подключения: play.fenixcraft.ru:25565
+
