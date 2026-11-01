@@ -1994,7 +1994,7 @@ fn spawn_and_stream_jvm(app: &AppHandle, java_bin: &str, args: &[String], work_d
     }
 }
 
-const CURRENT_LAUNCHER_VERSION: &str = "1.0.8";
+const CURRENT_LAUNCHER_VERSION: &str = "1.0.9";
 
 #[tauri::command]
 async fn check_launcher_update() -> serde_json::Value {

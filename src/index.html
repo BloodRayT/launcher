@@ -1,82 +1,121 @@
 <!DOCTYPE html>
-<html lang="ru" class="h-full select-none">
+<html lang="ru">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>FenixCraft Launcher</title>
+  <title>FenixCraft Launcher v1.0</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
-    ::-webkit-scrollbar { width: 6px; height: 6px; }
-    ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.15); border-radius: 9999px; }
-    ::-webkit-scrollbar-thumb:hover { background: rgba(16, 185, 129, 0.4); }
-    .glass-card { background: rgba(15, 23, 42, 0.65); backdrop-filter: blur(16px); border: 1px solid rgba(255, 255, 255, 0.08); }
-    .tab-content { display: none; width: 100%; height: 100%; }
-    .tab-content.active { display: flex; }
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: #080d11;
+      color: #e2e8f0;
+      user-select: none;
+      overflow: hidden;
+    }
+    .titlebar-drag { -webkit-app-region: drag; }
+    .no-drag { -webkit-app-region: no-drag; }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: #0c1318; }
+    ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #10b981; }
+    .glass-card {
+      background: rgba(15, 23, 30, 0.85);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      backdrop-filter: blur(12px);
+    }
+    .active-nav {
+      background: linear-gradient(90deg, rgba(16, 185, 129, 0.18) 0%, rgba(16, 185, 129, 0.02) 100%);
+      border-left: 3px solid #10b981;
+      color: #ffffff;
+    }
+    @keyframes twitchLiveBlink {
+      0%, 100% {
+        color: #10b981;
+        text-shadow: 0 0 10px rgba(16, 185, 129, 0.85);
+      }
+      50% {
+        color: #6ee7b7;
+        opacity: 0.45;
+        text-shadow: none;
+      }
+    }
+    .twitch-live-active {
+      animation: twitchLiveBlink 1.15s infinite ease-in-out;
+      font-weight: 700;
+    }
+      .selectable-console {
+      user-select: text !important;
+      -webkit-user-select: text !important;
+      cursor: text;
+    }
   </style>
 </head>
-<body class="h-full bg-[#070b0e] text-slate-200 overflow-hidden flex flex-col font-sans">
+<body class="h-screen w-screen flex flex-col">
 
-  <!-- Кастомный Window Titlebar -->
-  <header class="h-10 bg-[#06090c] border-b border-white/5 flex items-center justify-between px-3 select-none shrink-0" data-tauri-drag-region>
-    <div class="flex items-center space-x-2.5 pointer-events-none">
-      <img src="logo.png" alt="Logo" class="w-5 h-5 rounded-md object-contain" />
-      <span class="text-xs font-black tracking-wider text-white">FenixCraft</span>
-      <span id="app-version-badge" class="px-2 py-0.5 text-[10px] font-bold rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">v1.0.8</span>
-      <span class="text-[11px] text-slate-500 hidden sm:inline ml-2">Больше, чем просто игра...</span>
+  <header data-tauri-drag-region class="h-11 bg-[#060a0d] border-b border-white/5 flex items-center justify-between px-4 titlebar-drag shrink-0">
+    <div class="flex items-center space-x-3 pointer-events-none">
+      <img src="logo.png" alt="FenixCraft" class="w-7 h-7 rounded-full object-cover border border-emerald-500/40" />
+      <span class="font-bold text-white tracking-wide text-lg">FenixCraft <span id="app-version-badge" class="px-2 py-0.5 text-[11px] font-bold rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">v1.0.9</span>
+      <button id="btn-update-launcher" class="hidden no-drag pointer-events-auto text-xs font-bold text-slate-950 bg-emerald-400 hover:bg-emerald-300 px-2.5 py-0.5 rounded-full ml-2 animate-bounce transition">
+        ⬇ Обновить лаунчер
+      </button></span>
+      <span class="text-xs text-slate-500 pl-6">Больше, чем просто игра...</span>
     </div>
-    <div class="flex items-center space-x-1">
-      <button id="btn-win-min" class="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-white/10 text-slate-400 hover:text-white transition text-xs">🗕</button>
-      <button id="btn-win-max" class="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-white/10 text-slate-400 hover:text-white transition text-xs">🗖</button>
-      <button id="btn-win-close" class="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-red-500/80 text-slate-400 hover:text-white transition text-xs">✕</button>
+
+    <div class="flex items-center space-x-4 no-drag text-slate-400">
+      <button id="btn-toggle-console" title="Консоль отладки" class="hover:text-emerald-400 transition">📟</button>
+      <button id="btn-open-faq" title="FAQ и Правила" class="hover:text-emerald-400 transition">📜</button>
+      <button id="btn-top-settings" title="Настройки" class="hover:text-emerald-400 transition">⚙️</button>
+      <div class="h-4 w-[1px] bg-white/10 mx-1"></div>
+      <button onclick="window.fenixAPI.minimize()" class="hover:text-white px-1.5">—</button>
+      <button onclick="window.fenixAPI.maximize()" class="hover:text-white px-1.5">▢</button>
+      <button onclick="window.fenixAPI.close()" class="hover:text-red-400 px-1.5">✕</button>
     </div>
   </header>
 
-  <!-- Рабочая область -->
-  <div class="flex-1 flex overflow-hidden">
-    
-    <!-- Боковая панель навигации -->
-    <aside class="w-60 bg-[#090d12] border-r border-white/5 flex flex-col justify-between p-3 shrink-0">
-      <div class="space-y-4">
-        <nav class="space-y-1" id="sidebar-nav">
-          <button data-tab="home" class="nav-btn w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl text-xs font-bold transition bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 cursor-pointer">
-            <span>🏠</span>
-            <span>Главная</span>
-          </button>
-          <button data-tab="twitch" class="nav-btn w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold transition text-slate-400 hover:bg-white/5 hover:text-white cursor-pointer">
-            <div class="flex items-center space-x-3">
-              <span>📺</span>
-              <span>Twitch</span>
-            </div>
-            <span id="twitch-status-pill" class="px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-purple-500 text-white animate-pulse">LIVE</span>
-          </button>
-          <button data-tab="shop" class="nav-btn w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl text-xs font-bold transition text-slate-400 hover:bg-white/5 hover:text-white cursor-pointer">
-            <span>💎</span>
-            <span>Магазин</span>
-          </button>
-          <button data-tab="faq" class="nav-btn w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl text-xs font-bold transition text-slate-400 hover:bg-white/5 hover:text-white cursor-pointer">
-            <span>📜</span>
-            <span>FAQ и Правила</span>
-          </button>
-          <button data-tab="servers" class="nav-btn w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl text-xs font-bold transition text-slate-400 hover:bg-white/5 hover:text-white cursor-pointer">
-            <span>🌐</span>
-            <span>Серверы</span>
-          </button>
-          <button data-tab="settings" class="nav-btn w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl text-xs font-bold transition text-slate-400 hover:bg-white/5 hover:text-white cursor-pointer">
-            <span>⚙️</span>
-            <span>Настройки</span>
-          </button>
-        </nav>
-      </div>
+  <div class="flex flex-1 overflow-hidden">
+    <!-- ЛЕВОЕ МЕНЮ (Вместо "Играть" — категория "Twitch" с индикацией стрима) -->
+    <aside class="w-56 bg-[#0a1015] border-r border-white/5 flex flex-col justify-between p-3 shrink-0">
+      <nav class="space-y-1.5 mt-2">
+        <button data-tab="home" class="nav-btn active-nav w-full flex items-center space-x-3 px-4 py-2.5 rounded-r-lg text-sm font-medium transition">
+          <span class="text-emerald-400">🏠</span> <span>Главная</span>
+        </button>
 
-      <!-- Блок профиля игрока -->
+        <!-- Кнопка Twitch: открывает https://www.twitch.tv/bloodrayt, мигает зеленым во время стрима -->
+        <button id="btn-twitch-nav" onclick="window.fenixAPI.openUrl('https://www.twitch.tv/bloodrayt')"
+                class="w-full flex items-center justify-between px-4 py-2.5 rounded-r-lg text-sm font-medium text-slate-400 hover:text-white transition">
+          <div class="flex items-center space-x-3">
+            <span id="twitch-icon">📺</span>
+            <span id="twitch-label">Twitch</span>
+          </div>
+          <span id="twitch-live-dot" class="hidden w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+        </button>
+
+        <button data-tab="shop" class="nav-btn w-full flex items-center space-x-3 px-4 py-2.5 rounded-r-lg text-sm font-medium text-slate-400 hover:text-white transition">
+          <span>💎</span> <span>Магазин</span>
+        </button>
+        <button data-tab="faq" class="nav-btn w-full flex items-center space-x-3 px-4 py-2.5 rounded-r-lg text-sm font-medium text-slate-400 hover:text-white transition">
+          <span>📦</span> <span>FAQ и Правила</span>
+        </button>
+        <button data-tab="servers" class="nav-btn w-full flex items-center space-x-3 px-4 py-2.5 rounded-r-lg text-sm font-medium text-slate-400 hover:text-white transition">
+          <span>🖧</span> <span>Серверы</span>
+        </button>
+        <button data-tab="settings" class="nav-btn w-full flex items-center space-x-3 px-4 py-2.5 rounded-r-lg text-sm font-medium text-slate-400 hover:text-white transition">
+          <span>⚙️</span> <span>Настройки</span>
+        </button>
+      </nav>
+
+                  <!-- БЛОК ПРОФИЛЯ ИГРОКА -->
       <div class="p-3 rounded-xl glass-card space-y-2.5 w-full overflow-hidden shrink-0">
         <div class="flex items-center space-x-3">
-          <div class="relative group cursor-pointer shrink-0">
-            <img id="sidebar-avatar-img" src="logo.png" alt="Аватарка" class="w-10 h-10 rounded-full object-cover border border-emerald-500/70 shadow" />
+          <div class="relative group cursor-pointer shrink-0" id="avatar-container" title="Нажмите для смены аватарки">
+            <img id="sidebar-avatar-img" src="logo.png" alt="Аватарка" class="w-11 h-11 rounded-full object-cover border-2 border-emerald-500/70 shadow group-hover:brightness-75 transition" />
+            <div class="absolute inset-0 rounded-full bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition text-white text-xs">📷</div>
           </div>
+          <input type="file" id="avatar-file-input" accept="image/*" class="hidden" />
           <div class="overflow-hidden flex-1 min-w-0">
-            <div id="sidebar-username" class="text-xs font-bold text-white truncate">BloodRayT</div>
+            <div id="sidebar-username" class="text-xs font-bold text-white truncate">Новый игрок</div>
             <div class="flex items-center space-x-1.5 text-[11px] text-emerald-400">
               <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
               <span id="sidebar-account-type">Пиратка</span>
@@ -84,451 +123,327 @@
           </div>
         </div>
 
-        <select id="sidebar-acc-type" class="w-full bg-[#060a0e] border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-emerald-500 cursor-pointer">
+        <select id="sidebar-acc-type" class="w-full bg-[#080d11] border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-emerald-500 cursor-pointer">
           <option value="offline">Пиратка (Свободный вход)</option>
           <option value="mojang">Лицензия (Mojang / MS)</option>
         </select>
 
+        <!-- Поля для Пиратки -->
         <div id="sidebar-offline-box" class="space-y-1.5 w-full">
-          <input id="sidebar-nick-input" type="text" placeholder="Введите никнейм" value="BloodRayT" class="w-full bg-[#060a0e] border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500" />
-          <button id="btn-sidebar-save-nick" type="button" class="w-full bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-slate-950 font-bold text-xs py-1.5 rounded-lg transition shadow cursor-pointer">Сохранить ник</button>
+          <input id="sidebar-nick-input" type="text" placeholder="Введите ваш никнейм" class="w-full bg-[#080d11] border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500" />
+          <button id="btn-sidebar-save-nick" class="w-full bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-slate-950 font-bold text-xs py-1.5 rounded-lg transition shadow">Сохранить ник</button>
         </div>
 
+        <!-- Поля для Лицензии -->
         <div id="sidebar-license-box" class="space-y-1.5 w-full hidden">
-          <input id="sidebar-license-login" type="text" placeholder="Логин / Email" class="w-full bg-[#060a0e] border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500" />
-          <input id="sidebar-license-pass" type="password" placeholder="Пароль" class="w-full bg-[#060a0e] border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500" />
-          <button id="btn-sidebar-login-license" type="button" class="w-full bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-slate-950 font-bold text-xs py-1.5 rounded-lg transition shadow cursor-pointer">Войти (Mojang)</button>
+          <input id="sidebar-license-login" type="text" placeholder="Логин или Email" class="w-full bg-[#080d11] border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500" />
+          <input id="sidebar-license-pass" type="password" placeholder="Пароль учетной записи" class="w-full bg-[#080d11] border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500" />
+          <button id="btn-sidebar-login-license" class="w-full bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-slate-950 font-bold text-xs py-1.5 rounded-lg transition shadow">Войти (Mojang)</button>
         </div>
 
         <div id="sidebar-auth-msg" class="text-[10px] text-center text-slate-400 truncate min-h-[14px]"></div>
       </div>
     </aside>
 
-    <!-- ЕДИНЫЙ ЦЕНТРАЛЬНЫЙ КОНТЕЙНЕР ВКЛАДОК -->
-    <div class="flex-1 flex overflow-hidden relative">
+    <!-- ЭКРАН ВСТРОЕННОГО ПЛЕЕРА TWITCH -->
+    <main id="tab-twitch" class="flex-1 overflow-hidden p-6 hidden flex-col space-y-4">
+      <div class="flex items-center justify-between shrink-0">
+        <div class="flex items-center space-x-3">
+          <div class="w-3 h-3 rounded-full bg-purple-500 animate-pulse"></div>
+          <h2 class="text-xl font-extrabold text-white">Прямой эфир Twitch • BloodRayT</h2>
+        </div>
+        <a href="https://twitch.tv/bloodrayt" target="_blank" class="px-4 py-1.5 rounded-xl bg-purple-600/30 hover:bg-purple-600/50 border border-purple-500/40 text-purple-200 text-xs font-bold transition flex items-center space-x-1.5">
+          <span>Открыть на сайте</span>
+          <span>↗</span>
+        </a>
+      </div>
+      <div class="flex-1 w-full h-[calc(100vh-140px)] rounded-2xl overflow-hidden glass-card border border-purple-500/20 shadow-2xl relative">
+        <iframe
+          id="twitch-stream-iframe"
+          src="https://player.twitch.tv/?channel=bloodrayt&parent=localhost&parent=tauri.localhost&autoplay=true&muted=false"
+          class="w-full h-full border-0 rounded-2xl"
+          allowfullscreen>
+        </iframe>
+      </div>
+    </main>
 
-      <!-- 1. Главная вкладка -->
-      <main id="tab-home" class="tab-content active flex-col overflow-y-auto p-6 space-y-6">
-        
-        <!-- ЧИСТЫЙ БАННЕР HERO С baner.png -->
-        <div class="relative rounded-2xl overflow-hidden shadow-2xl border border-white/10 flex flex-col justify-between min-h-[250px] bg-[#0c1218] shrink-0">
-          <img src="baner.png" alt="Minecraft Banner" class="absolute inset-0 w-full h-full object-cover object-center pointer-events-none" />
-          <div class="absolute inset-0 bg-gradient-to-r from-black/90 via-black/60 to-black/30 pointer-events-none"></div>
 
-          <div class="relative z-10 p-6 sm:p-8 space-y-1">
-            <div class="inline-flex items-center space-x-2 px-2.5 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 text-[11px] font-bold uppercase tracking-wider">
-              <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-              <span>FENIXCRAFT OFFICIAL</span>
-            </div>
-            <h1 class="text-3xl sm:text-4xl font-extrabold text-white tracking-tight drop-shadow-md">MINECRAFT</h1>
-            <p class="text-xs sm:text-sm text-slate-300 font-medium">Исследуй. Строй. Выживай.</p>
-            <p class="text-[11px] text-slate-400">Выберите нужную сборку и нажмите зеленую кнопку «Играть» для запуска!</p>
-          </div>
+    <!-- ЦЕНТРАЛЬНАЯ ОБЛАСТЬ -->
+    <main class="flex-1 overflow-y-auto p-5 space-y-5 bg-[#080d11]">
 
-          <div class="relative z-10 px-6 pb-6 sm:px-8 sm:pb-8 flex flex-wrap items-center gap-3">
-            <button id="btn-play" class="flex items-center space-x-2 bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-slate-950 font-black px-6 py-2.5 rounded-xl shadow-lg shadow-emerald-500/30 transition cursor-pointer">
-              <span class="text-base">▶</span>
-              <span class="text-sm tracking-wide">Играть</span>
-            </button>
+      <!-- ВКЛАДКА: ГЛАВНАЯ -->
+      <div id="tab-home" class="space-y-5">
+        <div class="relative rounded-2xl overflow-hidden h-64 border border-white/10 flex flex-col justify-end p-7 bg-cover bg-center"
+             style="background-image: linear-gradient(90deg, rgba(8,13,17,0.92) 0%, rgba(8,13,17,0.4) 60%, rgba(8,13,17,0.1) 100%), url('https://images.unsplash.com/photo-1607513746994-51f730a44832?w=1200&q=80');">
+          <div class="max-w-xl space-y-2">
+            <div class="text-xs uppercase tracking-widest text-emerald-400 font-bold">FenixCraft Official</div>
+            <h1 class="text-3xl font-extrabold text-white tracking-tight">MINECRAFT <span class="text-sm font-normal block text-slate-300">JAVA EDITION</span></h1>
+            <p class="text-base font-semibold text-white pt-1">Исследуй. Строй. Выживай.</p>
+            <p class="text-xs text-slate-300 pb-2">Выберите нужную сборку и нажмите зеленую кнопку «Играть» для запуска!</p>
 
-            <div class="flex-1 min-w-[200px] max-w-xs">
-              <select id="select-version" class="w-full bg-[#0d141c]/95 border border-white/20 hover:border-emerald-500/50 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500 shadow transition cursor-pointer">
+            <div class="flex items-center space-x-3 pt-1">
+              <!-- Единственная главная зеленая кнопка запуска -->
+              <button id="btn-play" class="bg-emerald-500 hover:bg-emerald-400 active:scale-95 transition text-slate-950 font-bold px-8 py-3 rounded-xl flex items-center space-x-2 shadow-lg shadow-emerald-500/25 shrink-0">
+                <span>▶</span> <span id="btn-play-text">Играть</span>
+              </button>
+
+              <!-- Выпадающий список версий строго в вашем порядке -->
+              <select id="select-version" class="bg-[#111921]/95 border border-white/15 text-white text-sm rounded-xl px-4 py-3 focus:outline-none focus:border-emerald-500">
                 <option value="latest-vanilla">Основной ванильный сервер (Самая последняя)</option>
-                <option value="1.21.1-iris">FenixRPG • Fabric + Iris (Шейдеры)</option>
-                <option value="1.21.1-neoforge">FenixTech • NeoForge 1.21.1</option>
-                <option value="1.21.11-pvp">FenixArena • Анархия 1.21.11</option>
+                <option value="1.21.11-vanilla">Vanilla 1.21.11</option>
+                <option value="1.21.1-neoforge">NeoForge 1.21.1</option>
+                <option value="1.21.11-fabric">Fabric 1.21.11</option>
+                <option value="1.21.11-iris">Iris</option>
+                <option value="1.21.1-iris-neoforge">Iris + NeoForge</option>
+                <option value="1.21.11-iris-fabric">Iris + Fabric</option>
+              </select>
+
+              <button id="btn-quick-settings" class="bg-[#111921]/90 hover:bg-[#1a2632] border border-white/15 p-3 rounded-xl text-slate-300 shrink-0">🎚️</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="progress-container" class="hidden glass-card p-3 rounded-xl">
+          <div class="flex justify-between text-xs text-slate-300 mb-1">
+            <span id="progress-status">Подготовка файлов клиента...</span>
+            <span id="progress-percent">0%</span>
+          </div>
+          <div class="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
+            <div id="progress-bar" class="bg-emerald-500 h-full w-0 transition-all duration-200"></div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-4 gap-4">
+          <div onclick="document.getElementById('select-version').value='latest-vanilla'; document.getElementById('select-version').dispatchEvent(new Event('change'));" class="glass-card rounded-xl p-3.5 hover:border-emerald-500/40 transition cursor-pointer">
+            <div class="text-emerald-400 text-lg mb-1">🌱</div>
+            <div class="text-sm font-bold text-white">Последняя Vanilla</div>
+            <div class="text-xs text-emerald-400 mt-0.5">Основной сервер →</div>
+          </div>
+          <div onclick="switchTab('shop')" class="glass-card rounded-xl p-3.5 hover:border-amber-500/40 transition cursor-pointer">
+            <div class="text-amber-400 text-lg mb-1">💎</div>
+            <div class="text-sm font-bold text-white">Магазин доната</div>
+            <div class="text-xs text-slate-400 mt-0.5">VIP, Creative, Admin →</div>
+          </div>
+          <div onclick="switchTab('faq')" class="glass-card rounded-xl p-3.5 hover:border-cyan-500/40 transition cursor-pointer">
+            <div class="text-cyan-400 text-lg mb-1">📘</div>
+            <div class="text-sm font-bold text-white">FAQ и Правила</div>
+            <div class="text-xs text-slate-400 mt-0.5">Свод правил сервера →</div>
+          </div>
+          <div onclick="switchTab('servers')" class="glass-card rounded-xl p-3.5 hover:border-purple-500/40 transition cursor-pointer">
+            <div class="text-purple-400 text-lg mb-1">🖧</div>
+            <div class="text-sm font-bold text-white">Серверы</div>
+            <div class="text-xs text-slate-400 mt-0.5">play.fenixcraft.ru →</div>
+          </div>
+        </div>
+
+        <div>
+          <div class="flex items-center justify-between mb-3">
+            <div class="flex items-center space-x-2">
+              <h2 class="text-lg font-bold text-white">Новости ВКонтакте и Обновления</h2>
+              <span class="text-emerald-400 text-sm">📡</span>
+            </div>
+            <button id="btn-refresh-news" class="text-xs text-emerald-400 hover:underline">Обновить ленту ↻</button>
+          </div>
+          <div id="news-grid" class="grid grid-cols-3 gap-4"></div>
+        </div>
+      </div>
+
+      <!-- ВКЛАДКА: МАГАЗИН ПРИВИЛЕГИЙ -->
+      <div id="tab-shop" class="hidden space-y-5">
+        <div class="flex items-center justify-between">
+          <div>
+            <h2 class="text-xl font-bold text-white">Магазин привилегий и валюты FenixCraft</h2>
+            <p class="text-xs text-slate-400 mt-0.5">Выберите привилегию — выдача происходит автоматически на ваш никнейм после оплаты.</p>
+          </div>
+          <button onclick="window.fenixAPI.openUrl('https://fenixcraft.trademc.org/')" class="bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 hover:bg-emerald-500 hover:text-slate-950 font-semibold text-xs px-4 py-2 rounded-xl transition">
+            Открыть сайт магазина ↗
+          </button>
+        </div>
+        <div id="shop-grid" class="grid grid-cols-3 gap-4"></div>
+      </div>
+
+      <!-- ВКЛАДКА: СЕРВЕРЫ (С УПРАВЛЕНИЕМ СВОИМИ IP) -->
+      <div id="tab-servers" class="hidden space-y-4">
+        <div class="flex items-center justify-between">
+          <div>
+            <h2 class="text-xl font-bold text-white">Список серверов FenixCraft и управление IP</h2>
+            <p class="text-xs text-slate-400">Выберите сервер для авто-входа или добавьте/измените свои IP для правой панели.</p>
+          </div>
+          <button onclick="resetDefaultServers()" class="text-xs text-slate-400 hover:text-emerald-400 transition">Сбросить по умолчанию ↺</button>
+        </div>
+        <div id="servers-full-list" class="grid grid-cols-2 gap-4"></div>
+
+        <div class="glass-card p-4 rounded-xl space-y-3 mt-4">
+          <h3 class="text-sm font-bold text-emerald-400">Добавить или обновить сервер в правой панели</h3>
+          <div class="grid grid-cols-4 gap-2.5">
+            <input id="new-srv-name" type="text" placeholder="Название (напр. FenixMain)" class="bg-[#0b1218] border border-white/10 rounded-lg px-3 py-2 text-xs text-white" />
+            <input id="new-srv-desc" type="text" placeholder="Описание (Выживание 1.21.1)" class="bg-[#0b1218] border border-white/10 rounded-lg px-3 py-2 text-xs text-white" />
+            <input id="new-srv-ip" type="text" placeholder="IP (напр. play.fenixcraft.ru)" class="bg-[#0b1218] border border-white/10 rounded-lg px-3 py-2 text-xs text-white" />
+            <div class="flex space-x-2">
+              <input id="new-srv-port" type="number" value="25565" placeholder="Порт" class="w-20 bg-[#0b1218] border border-white/10 rounded-lg px-2.5 py-2 text-xs text-white" />
+              <button onclick="addOrUpdateCustomServer()" class="flex-1 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs rounded-lg transition">Сохранить</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ВКЛАДКА: НАСТРОЙКИ -->
+      <div id="tab-settings" class="hidden space-y-5">
+        <h2 class="text-xl font-bold text-white">Настройки лаунчера и игры</h2>
+        <p class="text-xs text-slate-400">Все изменения автоматически применяются и сохраняются в реальном времени.</p>
+
+        <div class="grid grid-cols-2 gap-4">
+          <div class="glass-card p-4 rounded-xl space-y-3">
+            <h3 class="text-sm font-bold text-emerald-400">Авторизация</h3>
+            <div>
+              <label class="text-xs text-slate-400">Никнейм (на него также выдается донат в магазине)</label>
+              <input id="cfg-username" type="text" class="w-full mt-1 bg-[#0b1218] border border-white/10 rounded-lg px-3 py-2 text-sm text-white" />
+            </div>
+            <div>
+              <label class="text-xs text-slate-400">Тип аккаунта</label>
+              <select id="cfg-account-type" class="w-full mt-1 bg-[#0b1218] border border-white/10 rounded-lg px-3 py-2 text-sm text-white">
+                <option value="offline">Пиратка (Свободный вход)</option>
+                <option value="microsoft">Лицензия Microsoft (OAuth 2.0)</option>
               </select>
             </div>
+          </div>
 
-            <button id="btn-open-folder" title="Открыть папку игры .fenixcraft" class="p-2.5 bg-white/10 hover:bg-white/20 active:scale-95 border border-white/15 rounded-xl text-white transition cursor-pointer">
-              📁
-            </button>
-          </div>
-        </div>
-
-        <!-- КАРТОЧКИ БЫСТРЫХ ССЫЛОК -->
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 shrink-0">
-          <div class="p-3.5 rounded-xl glass-card border border-white/5 hover:border-emerald-500/30 transition cursor-pointer" onclick="window.switchTab('servers')">
-            <div class="text-emerald-400 text-lg mb-1">🎮</div>
-            <div class="text-xs font-bold text-white">Последняя Vanilla</div>
-            <div class="text-[11px] text-slate-400">Основной сервер →</div>
-          </div>
-          <div class="p-3.5 rounded-xl glass-card border border-white/5 hover:border-emerald-500/30 transition cursor-pointer" onclick="window.switchTab('shop')">
-            <div class="text-blue-400 text-lg mb-1">💎</div>
-            <div class="text-xs font-bold text-white">Магазин доната</div>
-            <div class="text-[11px] text-slate-400">VIP, Creative, Admin →</div>
-          </div>
-          <div class="p-3.5 rounded-xl glass-card border border-white/5 hover:border-emerald-500/30 transition cursor-pointer" onclick="window.switchTab('faq')">
-            <div class="text-cyan-400 text-lg mb-1">📘</div>
-            <div class="text-xs font-bold text-white">FAQ и Правила</div>
-            <div class="text-[11px] text-slate-400">Свод правил сервера →</div>
-          </div>
-          <div class="p-3.5 rounded-xl glass-card border border-white/5 hover:border-emerald-500/30 transition cursor-pointer" onclick="window.switchTab('servers')">
-            <div class="text-purple-400 text-lg mb-1">🕹️</div>
-            <div class="text-xs font-bold text-white">Серверы</div>
-            <div class="text-[11px] text-slate-400">play.fenixcraft.ru →</div>
-          </div>
-        </div>
-
-        <!-- ЛЕНТА НОВОСТЕЙ ВКОНТАКТЕ -->
-        <div class="space-y-3">
-          <div class="flex items-center justify-between">
-            <h3 class="text-sm font-bold text-white flex items-center space-x-2">
-              <span>Новости ВКонтакте и Обновления</span>
-              <span class="text-xs">📢</span>
-            </h3>
-            <button id="btn-refresh-news" class="text-xs text-slate-400 hover:text-emerald-400 transition cursor-pointer">Обновить ленту ↻</button>
-          </div>
-          <div id="vk-news-grid" class="grid grid-cols-1 md:grid-cols-3 gap-3"></div>
-        </div>
-      </main>
-
-      <!-- 2. Вкладка Twitch -->
-      <main id="tab-twitch" class="tab-content flex-col overflow-y-auto p-6 space-y-4">
-        <div class="flex items-center justify-between shrink-0">
-          <div class="flex items-center space-x-3">
-            <div class="w-3.5 h-3.5 rounded-full bg-purple-500 animate-pulse"></div>
+          <div class="glass-card p-4 rounded-xl space-y-3">
+            <h3 class="text-sm font-bold text-emerald-400">Производительность и Экран</h3>
             <div>
-              <h2 class="text-lg font-extrabold text-white flex items-center space-x-2">
-                <span>Канал Twitch • BloodRayT</span>
-                <span class="text-[10px] bg-purple-500 text-white font-black px-2 py-0.5 rounded uppercase">LIVE</span>
-              </h2>
-              <p class="text-xs text-slate-400">Трансляция и записи прошедших стримов</p>
+              <div class="flex justify-between text-xs">
+                <span class="text-slate-400">Выделенная ОЗУ (RAM):</span>
+                <span id="ram-label" class="text-emerald-400 font-bold">6144 МБ</span>
+              </div>
+              <input id="cfg-ram" type="range" min="2048" max="16384" step="512" class="w-full mt-2 accent-emerald-500" />
+            </div>
+            <div class="grid grid-cols-2 gap-2 pt-1">
+              <div>
+                <label class="text-xs text-slate-400">Ширина окна</label>
+                <input id="cfg-width" type="number" class="w-full mt-1 bg-[#0b1218] border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white" />
+              </div>
+              <div>
+                <label class="text-xs text-slate-400">Высота окна</label>
+                <input id="cfg-height" type="number" class="w-full mt-1 bg-[#0b1218] border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white" />
+              </div>
             </div>
           </div>
-          <a href="https://twitch.tv/bloodrayt" target="_blank" class="px-4 py-1.5 rounded-xl bg-purple-600/40 hover:bg-purple-600/60 border border-purple-500/50 text-purple-200 text-xs font-bold transition flex items-center space-x-1 cursor-pointer">
-            <span>Открыть на Twitch.tv</span>
-            <span>↗</span>
-          </a>
-        </div>
 
-        <div class="w-full h-[460px] rounded-2xl overflow-hidden glass-card border border-purple-500/30 shadow-2xl relative bg-black flex flex-col items-center justify-center">
-          <iframe
-            src="https://player.twitch.tv/?channel=bloodrayt&parent=localhost&parent=127.0.0.1&autoplay=true&muted=false"
-            class="w-full h-full border-0"
-            allow="autoplay; fullscreen"
-            allowfullscreen>
-          </iframe>
-        </div>
-
-        <div class="space-y-3 pt-2">
-          <div class="flex items-center justify-between">
-            <h3 class="text-sm font-bold text-white flex items-center space-x-2">
-              <span>📺 Недавние трансляции</span>
-            </h3>
-            <a href="https://www.twitch.tv/bloodrayt/videos" target="_blank" class="text-xs text-purple-400 hover:underline">Полный архив записей →</a>
-          </div>
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <a href="https://www.twitch.tv/bloodrayt/videos" target="_blank" class="p-3.5 rounded-xl glass-card border border-white/5 hover:border-purple-500/40 transition block group">
-              <div class="text-xs font-bold text-white group-hover:text-purple-300 transition">🎮 Hunt: Showdown 1896</div>
-              <div class="text-[11px] text-slate-400 mt-1">Ламповый эфир, общение и катки</div>
-            </a>
-            <a href="https://www.twitch.tv/bloodrayt/videos" target="_blank" class="p-3.5 rounded-xl glass-card border border-white/5 hover:border-purple-500/40 transition block group">
-              <div class="text-xs font-bold text-white group-hover:text-purple-300 transition">💬 Чат-терапия / Разговоры</div>
-              <div class="text-[11px] text-slate-400 mt-1">Ответы на вопросы и посиделки</div>
-            </a>
-            <a href="https://www.twitch.tv/bloodrayt/videos" target="_blank" class="p-3.5 rounded-xl glass-card border border-white/5 hover:border-purple-500/40 transition block group">
-              <div class="text-xs font-bold text-white group-hover:text-purple-300 transition">🤠 Red Dead Redemption 2</div>
-              <div class="text-[11px] text-slate-400 mt-1">Прохождение и приключения</div>
-            </a>
-          </div>
-        </div>
-      </main>
-
-      <!-- 3. Вкладка Магазин -->
-      <main id="tab-shop" class="tab-content flex-col overflow-y-auto p-6 space-y-4">
-        <div class="flex items-center justify-between">
-          <div>
-            <h2 class="text-lg font-bold text-white">Магазин привилегий и валюты FenixCraft</h2>
-            <p class="text-xs text-slate-400">Выберите привилегию — выдача происходит автоматически.</p>
-          </div>
-          <a href="https://fenixcraft.ru/shop" target="_blank" class="px-4 py-2 bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-400 text-xs font-bold rounded-xl transition">
-            Открыть сайт магазина ↗
-          </a>
-        </div>
-        <div id="shop-cards-grid" class="grid grid-cols-1 md:grid-cols-3 gap-4"></div>
-      </main>
-
-      <!-- 4. Вкладка FAQ -->
-      <main id="tab-faq" class="tab-content flex-col overflow-y-auto p-6 space-y-4">
-        <h2 class="text-lg font-bold text-white">FAQ и Правила FenixCraft</h2>
-        <div class="space-y-3 text-xs text-slate-300">
-          <div class="p-4 rounded-xl glass-card">
-            <div class="font-bold text-white text-sm mb-1">1. Как зайти на сервер?</div>
-            <div>Нажмите зеленую кнопку «Играть» на главной странице. Лаунчер автоматически запустит игру.</div>
-          </div>
-          <div class="p-4 rounded-xl glass-card">
-            <div class="font-bold text-white text-sm mb-1">2. Нужна ли лицензия?</div>
-            <div>Нет, играть можно как с пиратского аккаунта, так и с официальной лицензии Mojang.</div>
-          </div>
-        </div>
-      </main>
-
-      <!-- 5. Вкладка Серверы -->
-      <main id="tab-servers" class="tab-content flex-col overflow-y-auto p-6 space-y-4">
-        <div class="flex items-center justify-between">
-          <h2 class="text-lg font-bold text-white">Игровые серверы комплекса FenixCraft</h2>
-          <button id="btn-refresh-servers" class="text-xs text-emerald-400 hover:underline">Обновить статус ↻</button>
-        </div>
-        <div id="servers-list-container" class="space-y-3"></div>
-      </main>
-
-      <!-- 6. Вкладка Настройки -->
-      <main id="tab-settings" class="tab-content flex-col overflow-y-auto p-6 space-y-6">
-        <h2 class="text-lg font-bold text-white">Параметры запуска и память</h2>
-        <div class="max-w-xl space-y-4 text-xs">
-          <div>
-            <label class="block text-slate-400 mb-1">Выделение оперативной памяти (RAM)</label>
-            <div class="flex items-center space-x-3">
-              <input id="cfg-ram-range" type="range" min="2048" max="16384" step="1024" value="6144" class="flex-1 accent-emerald-500 cursor-pointer" />
-              <span id="cfg-ram-val" class="font-bold text-white w-16 text-right">6 ГБ</span>
+          <div class="glass-card p-4 rounded-xl space-y-3 col-span-2">
+            <h3 class="text-sm font-bold text-emerald-400">Среда выполнения Java (Java 21+) и Аргументы JVM</h3>
+            <div>
+              <label class="text-xs text-slate-400">Путь к Java 21 или выше</label>
+              <div class="flex space-x-2 mt-1">
+                <input id="cfg-java" type="text" placeholder="Автоматически (Java 21 Adoptium)" class="flex-1 bg-[#0b1218] border border-white/10 rounded-lg px-3 py-2 text-sm text-white" />
+                <button id="btn-browse-java" class="bg-slate-800 hover:bg-slate-700 px-4 rounded-lg text-xs font-medium">Обзор...</button>
+              </div>
+            </div>
+            <div>
+              <label class="text-xs text-slate-400">Пользовательские аргументы JVM</label>
+              <input id="cfg-args" type="text" class="w-full mt-1 bg-[#0b1218] border border-white/10 rounded-lg px-3 py-2 text-sm text-white font-mono" />
+            </div>
+            <div class="flex items-center space-x-6 pt-2">
+              <label class="flex items-center space-x-2 text-sm cursor-pointer">
+                <input id="cfg-console" type="checkbox" class="accent-emerald-500 w-4 h-4" />
+                <span>Включить консоль лаунчера при старте</span>
+              </label>
+              <label class="flex items-center space-x-2 text-sm cursor-pointer">
+                <input id="cfg-debug" type="checkbox" class="accent-emerald-500 w-4 h-4" />
+                <span>Режим отладки (Debug лог)</span>
+              </label>
             </div>
           </div>
-          <div>
-            <label class="block text-slate-400 mb-1">Аргументы JVM</label>
-            <input id="cfg-jvm-args" type="text" class="w-full bg-[#080d11] border border-white/10 rounded-lg p-2 text-white" value="-XX:+UnlockExperimentalVMOptions -XX:+UseG1GC" />
+        </div>
+      </div>
+
+      <!-- ВКЛАДКА: FAQ И ПРАВИЛА -->
+      <div id="tab-faq" class="hidden space-y-4">
+        <h2 class="text-xl font-bold text-white">FAQ и Стандартные правила FenixCraft</h2>
+        <div class="glass-card p-4 rounded-xl space-y-2">
+          <h3 class="text-emerald-400 font-bold text-sm">1. Общие правила поведения</h3>
+          <p class="text-xs text-slate-300 leading-relaxed">
+            Запрещено использование стороннего ПО, чит-клиентов, X-Ray текстурпаков и модификаций, дающих нечестное преимущество. Лаунчер автоматически проверяет целостность клиента перед каждым запуском.
+          </p>
+        </div>
+        <div class="glass-card p-4 rounded-xl space-y-2">
+          <h3 class="text-emerald-400 font-bold text-sm">2. Часто задаваемые вопросы (FAQ)</h3>
+          <ul class="text-xs text-slate-300 space-y-1.5 list-disc pl-4">
+            <li><b>Как запустить игру?</b> Выберите нужную версию в списке рядом с зеленой кнопкой <code>▶ Играть</code> на главном баннере и нажмите её.</li>
+            <li><b>Как узнать, идет ли стрим?</b> Когда на канале <code>twitch.tv/bloodrayt</code> идет стрим, кнопка <b>Twitch</b> в левом меню начинает мигать зеленым цветом!</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- ВКЛАДКА: КОНСОЛЬ ОТЛАДКИ (С ВЫДЕЛЕНИЕМ ТЕКСТА, КОПИРОВАНИЕМ И СОХРАНЕНИЕМ DEBUG-ФАЙЛА) -->
+      <div id="tab-console" class="hidden space-y-3">
+        <div class="flex justify-between items-center">
+          <h2 class="text-lg font-bold text-white">Консоль лаунчера и Debug-монитор</h2>
+          <div class="flex items-center space-x-2">
+            <button id="btn-verify-assets" class="bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 hover:bg-emerald-500 hover:text-slate-950 text-xs font-semibold px-3 py-1.5 rounded-lg transition">
+              🔍 Проверить 100% ассетов
+            </button>
+            <button id="btn-copy-console" class="bg-slate-800 hover:bg-slate-700 border border-white/10 text-slate-200 text-xs font-medium px-3 py-1.5 rounded-lg transition">
+              📋 Копировать
+            </button>
+            <button id="btn-save-debug" class="bg-cyan-500/20 border border-cyan-500/40 text-cyan-300 hover:bg-cyan-400 hover:text-slate-950 text-xs font-semibold px-3 py-1.5 rounded-lg transition">
+              💾 Сохранить Debug-лог
+            </button>
+            <button onclick="document.getElementById('console-output').textContent = ''" class="text-xs text-slate-400 hover:text-white px-2">Очистить</button>
           </div>
         </div>
-      </main>
+        <pre id="console-output" tabindex="0" class="selectable-console glass-card p-4 rounded-xl h-96 overflow-y-auto text-xs font-mono text-emerald-300 whitespace-pre-wrap focus:outline-none focus:border-emerald-500/40"></pre>
+      </div>
+    </main>
 
-    </div>
-
-    <!-- Правая панель серверов -->
-    <aside class="w-72 bg-[#090d12] border-l border-white/5 flex flex-col justify-between p-4 shrink-0 hidden lg:flex">
+    <!-- ПРАВЫЙ САЙДБАР -->
+    <aside class="w-72 bg-[#0a1015] border-l border-white/5 p-4 flex flex-col justify-between shrink-0">
       <div class="space-y-4">
         <div class="flex items-center justify-between">
-          <span class="text-xs font-bold text-white">Мои серверы</span>
-          <button class="text-[11px] text-emerald-400 hover:underline cursor-pointer" onclick="window.switchTab('servers')">Обновить →</button>
+          <h3 class="text-sm font-bold text-white">Мои серверы</h3>
+          <button id="btn-ping-servers" class="text-xs text-emerald-400 hover:underline">Обновить →</button>
         </div>
-        <div id="sidebar-servers-quick" class="space-y-2"></div>
+        <div id="servers-list" class="space-y-2.5"></div>
+        <div class="pt-2">
+          <h4 class="text-xs font-semibold text-slate-400 mb-2">Выбранный профиль</h4>
+          <div class="glass-card p-3 rounded-xl flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+              <div class="w-10 h-10 rounded-lg bg-emerald-500/20 flex items-center justify-center">🌍</div>
+              <div>
+                <div id="last-launch-ver" class="text-xs font-bold text-white truncate max-w-[140px]">Основной ванильный</div>
+                <div class="text-[11px] text-slate-400">Запуск зеленой кнопкой</div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
-      <div class="p-3 rounded-xl bg-black/40 border border-white/5 text-[11px] text-slate-400 italic">
-        «В каждом кубике скрывается целый мир...»
+      <div class="glass-card p-4 rounded-xl relative">
+        <p class="text-xs italic text-slate-400">«В каждом кубике скрывается целый мир...»</p>
+        <div class="text-right text-emerald-400 text-lg mt-1">👾</div>
       </div>
     </aside>
-
   </div>
 
-  <!-- ВСТРОЕННЫЙ ОТКАЗОУСТОЙЧИВЫЙ JAVASCRIPT -->
-  <script>
-    // 1. Безопасная инициализация Tauri API
-    function getTauriInvoke() {
-      try {
-        if (window.__TAURI__ && window.__TAURI__.core && typeof window.__TAURI__.core.invoke === 'function') {
-          return window.__TAURI__.core.invoke.bind(window.__TAURI__.core);
-        }
-        if (window.__TAURI__ && window.__TAURI__.tauri && typeof window.__TAURI__.tauri.invoke === 'function') {
-          return window.__TAURI__.tauri.invoke.bind(window.__TAURI__.tauri);
-        }
-      } catch(e) {}
-      return null;
-    }
-
-    const tauriInvoke = getTauriInvoke();
-    const fenixAPI = {
-      getConfig: () => tauriInvoke ? tauriInvoke('get_config') : Promise.resolve({ username: 'BloodRayT', ram: 6144 }),
-      saveConfig: (cfg) => tauriInvoke ? tauriInvoke('save_config', { newConfig: cfg }) : Promise.resolve(),
-      launchGame: (profile, nick, ram) => tauriInvoke ? tauriInvoke('launch_game', { profile, nick, ram }) : Promise.resolve(),
-      mojangAuth: (username, password) => tauriInvoke ? tauriInvoke('mojang_authenticate', { username, password }) : Promise.resolve({ success: false }),
-      openFolder: (p) => tauriInvoke ? tauriInvoke('open_game_folder', { path: p }) : Promise.resolve(),
-    };
-
-    let currentConfig = {
-      username: 'BloodRayT',
-      accountType: 'offline',
-      ram: 6144
-    };
-
-    // 2. Функция переключения вкладок
-    window.switchTab = function(tabName) {
-      document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
-      const target = document.getElementById('tab-' + tabName);
-      if (target) target.classList.add('active');
-
-      document.querySelectorAll('.nav-btn').forEach(btn => {
-        if (btn.getAttribute('data-tab') === tabName) {
-          btn.className = 'nav-btn w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl text-xs font-bold transition bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 cursor-pointer';
-        } else {
-          btn.className = 'nav-btn w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl text-xs font-bold transition text-slate-400 hover:bg-white/5 hover:text-white cursor-pointer';
-        }
-      });
-    };
-
-    // 3. Мгновенное обновление ника
-    function applyNickToUI(name, typeBadge) {
-      const finalName = (name && name.trim() !== '') ? name.trim() : 'Новый игрок';
-      const userEl = document.getElementById('sidebar-username');
-      if (userEl) userEl.textContent = finalName;
-
-      const accEl = document.getElementById('sidebar-account-type');
-      if (accEl && typeBadge) accEl.textContent = typeBadge;
-
-      const inputEl = document.getElementById('sidebar-nick-input');
-      if (inputEl && inputEl.value !== finalName) inputEl.value = finalName;
-    }
-
-    // 4. Отрисовка серверов
-    function renderServers() {
-      const servers = [
-        { name: 'FenixCraft', desc: 'Выживание • Vanilla/Mods', ip: 'play.fenixcraft.ru', online: '0/1000' },
-        { name: 'FenixTech', desc: 'NeoForge • 1.21.1', ip: 'tech.fenixcraft.ru', online: '0/500' },
-        { name: 'FenixRPG', desc: 'Fabric + Iris • 1.21.11', ip: 'rpg.fenixcraft.ru', online: '0/500' },
-        { name: 'FenixArena', desc: 'Анархия • 1.21.11', ip: 'pvp.fenixcraft.ru', online: '0/300' }
-      ];
-
-      const quick = document.getElementById('sidebar-servers-quick');
-      if (quick) {
-        quick.innerHTML = servers.map(s => `
-          <div class="p-2.5 rounded-xl glass-card flex items-center justify-between text-xs">
-            <div>
-              <div class="font-bold text-white">${s.name}</div>
-              <div class="text-[10px] text-slate-400">${s.desc}</div>
-            </div>
-            <div class="text-[10px] text-emerald-400 font-bold flex items-center space-x-1">
-              <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-              <span>${s.online}</span>
-            </div>
-          </div>
-        `).join('');
-      }
-
-      const list = document.getElementById('servers-list-container');
-      if (list) {
-        list.innerHTML = servers.map(s => `
-          <div class="p-4 rounded-xl glass-card flex items-center justify-between">
-            <div>
-              <h3 class="text-sm font-bold text-white">${s.name}</h3>
-              <p class="text-xs text-slate-400">${s.desc} • IP: <span class="text-emerald-400 font-mono">${s.ip}</span></p>
-            </div>
-            <button class="px-4 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold rounded-xl transition cursor-pointer" onclick="window.switchTab('home')">Играть</button>
-          </div>
-        `).join('');
-      }
-    }
-
-    // 5. Отрисовка новостей
-    function renderNews() {
-      const grid = document.getElementById('vk-news-grid');
-      if (!grid) return;
-
-      const news = [
-        { title: 'Сообщество FenixCraft ВКонтакте', tag: 'VK.RU/FENIXCRAFT', text: 'Следите за обновлениями, конкурсами и техническими работами.', link: 'https://vk.com/fenixcraft' },
-        { title: 'Привилегии VIP, Creative, Admin', tag: 'Магазин', text: 'Поддержите развитие сервера и получите уникальные возможности.', link: 'https://fenixcraft.ru/shop' },
-        { title: 'Автозагрузка Java 21 Adoptium', tag: 'Релиз v1.0.8', text: 'Лаунчер автоматически скачивает чистую среду Java 21 для максимального FPS.', link: 'https://fenixcraft.ru' }
-      ];
-
-      grid.innerHTML = news.map(n => `
-        <div class="p-4 rounded-xl glass-card border border-white/5 space-y-2 flex flex-col justify-between">
-          <div>
-            <span class="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded">${n.tag}</span>
-            <h4 class="font-bold text-white text-xs mt-2">${n.title}</h4>
-            <p class="text-[11px] text-slate-400 mt-1">${n.text}</p>
-          </div>
-          <a href="${n.link}" target="_blank" class="text-xs text-emerald-400 hover:underline pt-2">Читать далее →</a>
+  <script src="renderer.js"></script>
+<!-- МОДАЛЬНОЕ ОКНО АВТООБНОВЛЕНИЯ ЛАУНЧЕРА -->
+  <div id="update-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div class="glass-card bg-[#0b1219] border border-emerald-500/30 rounded-2xl p-6 max-w-md w-full shadow-2xl space-y-4">
+      <div class="flex items-center space-x-3">
+        <div class="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-xl">🚀</div>
+        <div>
+          <h3 class="text-base font-bold text-white">Доступно обновление лаунчера!</h3>
+          <p id="update-version-label" class="text-xs text-emerald-400 font-medium">Версия v1.0.1</p>
         </div>
-      `).join('');
-    }
+      </div>
+      <div class="bg-black/40 rounded-xl p-3 border border-white/5 text-xs text-slate-300 space-y-1.5 max-h-40 overflow-y-auto" id="update-changelog">
+        Загрузка списка изменений...
+      </div>
+      <div class="flex items-center justify-end space-x-2 pt-2">
+        <button id="btn-update-later" class="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white transition">Позже</button>
+        <button id="btn-update-now" class="px-5 py-2 text-xs font-bold bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl shadow-lg shadow-emerald-500/20 active:scale-95 transition">Обновить сейчас</button>
+      </div>
+    </div>
+  </div>
 
-    // 6. Отрисовка магазина
-    function renderShop() {
-      const container = document.getElementById('shop-cards-grid');
-      if (!container) return;
-
-      const items = [
-        { title: 'Привилегия VIP', price: '149 ₽', desc: 'Цветной ник, полет в лобби, доступ к /kit vip' },
-        { title: 'Привилегия Premium', price: '349 ₽', desc: 'Все возможности VIP + /feed, /workbench, 5 точек дома' },
-        { title: 'Привилегия Creative', price: '599 ₽', desc: 'Креативный режим, доступ к миру построек, /fly везде' },
-        { title: 'Привилегия Admin', price: '1299 ₽', desc: 'Максимальный набор прав, префикс Администратора, бан/мут' },
-        { title: '1000 FenixCoins', price: '99 ₽', desc: 'Внутриигровая валюта для покупки кейсов и косметики' },
-        { title: '5000 FenixCoins', price: '399 ₽', desc: 'Выгодный пакет монет с бонусом +15% к начислению' },
-      ];
-
-      container.innerHTML = items.map(it => `
-        <div class="p-4 rounded-xl glass-card border border-white/5 space-y-2 flex flex-col justify-between">
-          <div>
-            <div class="flex items-center justify-between">
-              <span class="font-bold text-white text-sm">${it.title}</span>
-              <span class="text-xs font-black text-emerald-400 px-2 py-0.5 rounded bg-emerald-500/10">${it.price}</span>
-            </div>
-            <p class="text-[11px] text-slate-400 mt-1">${it.desc}</p>
-          </div>
-          <a href="https://fenixcraft.ru/shop" target="_blank" class="mt-3 block text-center py-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-lg text-xs transition">Купить</a>
-        </div>
-      `).join('');
-    }
-
-    // 7. Инициализация при загрузке документа
-    document.addEventListener('DOMContentLoaded', async () => {
-      // Кнопки сайдбара
-      document.querySelectorAll('#sidebar-nav button').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-          e.preventDefault();
-          const tab = btn.getAttribute('data-tab');
-          if (tab) window.switchTab(tab);
-        });
-      });
-
-      // Рендерим контент
-      renderServers();
-      renderNews();
-      renderShop();
-
-      // Профиль
-      const saveBtn = document.getElementById('btn-sidebar-save-nick');
-      const nickInput = document.getElementById('sidebar-nick-input');
-      const authMsg = document.getElementById('sidebar-auth-msg');
-
-      if (saveBtn && nickInput) {
-        saveBtn.addEventListener('click', async (e) => {
-          e.preventDefault();
-          const val = nickInput.value.trim();
-          if (!val) return;
-
-          applyNickToUI(val, 'Пиратка');
-          currentConfig.username = val;
-          currentConfig.accountType = 'offline';
-          await fenixAPI.saveConfig(currentConfig);
-
-          saveBtn.textContent = '✅ Сохранено!';
-          if (authMsg) authMsg.textContent = 'Ник сохранен: ' + val;
-          setTimeout(() => {
-            saveBtn.textContent = 'Сохранить ник';
-            if (authMsg) authMsg.textContent = '';
-          }, 2000);
-        });
-      }
-
-      // Кнопка Играть
-      const btnPlay = document.getElementById('btn-play');
-      const selVer = document.getElementById('select-version');
-      if (btnPlay) {
-        btnPlay.addEventListener('click', async () => {
-          btnPlay.disabled = true;
-          btnPlay.innerHTML = '<span>⏳ Запуск...</span>';
-          await fenixAPI.launchGame(selVer ? selVer.value : 'latest-vanilla', currentConfig.username, currentConfig.ram);
-          setTimeout(() => {
-            btnPlay.disabled = false;
-            btnPlay.innerHTML = '<span class="text-base">▶</span><span class="text-sm tracking-wide">Играть</span>';
-          }, 4000);
-        });
-      }
-
-      // Папка игры
-      const btnFolder = document.getElementById('btn-open-folder');
-      if (btnFolder) {
-        btnFolder.addEventListener('click', () => fenixAPI.openFolder(''));
-      }
-
-      // Загрузка конфига
-      try {
-        const cfg = await fenixAPI.getConfig();
-        if (cfg && cfg.username) {
-          currentConfig = cfg;
-          applyNickToUI(cfg.username, cfg.accountType === 'mojang' ? 'Лицензия' : 'Пиратка');
-        }
-      } catch(e) {}
-    });
-  </script>
 </body>
 </html>
