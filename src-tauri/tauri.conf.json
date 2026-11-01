@@ -21,7 +21,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self' tauri: asset: https:; script-src 'self' 'unsafe-inline' https:; frame-src https://player.twitch.tv https://www.twitch.tv https://embed.twitch.tv; img-src 'self' asset: https: data:; style-src 'self' 'unsafe-inline' https:;"
+      "csp": null
     }
   },
   "bundle": {

@@ -1,285 +1,984 @@
-// FenixCraft Launcher Renderer v1.0.4
-const tauriCore = window.__TAURI__ ? (window.__TAURI__.core || window.__TAURI__.tauri) : null;
 
-window.fenixAPI = {
-  getConfig: () => tauriCore ? tauriCore.invoke('get_config') : Promise.resolve({}),
-  saveConfig: (cfg) => tauriCore ? tauriCore.invoke('save_config', { newConfig: cfg }) : Promise.resolve(),
-  launchGame: (profile, nick, ram) => tauriCore ? tauriCore.invoke('launch_game', { profile, nick, ram }) : Promise.resolve(),
-  mojangAuth: (username, password) => tauriCore ? tauriCore.invoke('mojang_authenticate', { username, password }) : Promise.resolve({ success: false, error: 'Tauri недоступен' }),
-  openFolder: (p) => tauriCore ? tauriCore.invoke('open_game_folder', { path: p }) : Promise.resolve(),
-};
-
-let currentConfig = {
-  username: 'BloodRayT',
-  accountType: 'offline',
-  ram: 6144
-};
-
-// Функция переключения вкладок (строго изолированная)
-window.switchTab = function(tabName) {
-  // 1. Скрываем все экраны
-  document.querySelectorAll('.tab-content').forEach(tab => {
-    tab.classList.remove('active');
-  });
-
-  // 2. Открываем целевую
-  const target = document.getElementById(`tab-${tabName}`);
-  if (target) {
-    target.classList.add('active');
+// Автоматическая установка версии из ядра Tauri
+async function syncLauncherVersionUI() {
+  try {
+    const ver = tauriCore ? await tauriCore.invoke('get_app_version') : '1.0.1';
+    const badge = document.getElementById('app-version-badge');
+    if (badge) badge.textContent = `v${ver}`;
+    document.querySelectorAll('.app-version-text').forEach(el => el.textContent = `v${ver}`);
+  } catch (e) {
+    const badge = document.getElementById('app-version-badge');
+    if (badge) badge.textContent = 'v1.0.1';
   }
+}
 
-  // 3. Переключаем стиль кнопок в меню
-  document.querySelectorAll('.nav-btn').forEach(btn => {
-    if (btn.getAttribute('data-tab') === tabName) {
-      btn.className = 'nav-btn w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl text-xs font-bold transition bg-emerald-500/20 text-emerald-400 border border-emerald-500/30';
-    } else {
-      btn.className = 'nav-btn w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl text-xs font-bold transition text-slate-400 hover:bg-white/5 hover:text-white';
+// Переключение на встроенный плеер Twitch
+function setupTwitchTabHandler() {
+  const twitchNavBtn = document.querySelector('button[data-tab="twitch"]') || document.getElementById('nav-twitch');
+  if (twitchNavBtn) {
+    twitchNavBtn.onclick = (e) => {
+      e.preventDefault();
+      // Скрываем все остальные вкладки
+      document.querySelectorAll('main').forEach(m => m.classList.add('hidden'));
+      const twitchTab = document.getElementById('tab-twitch');
+      if (twitchTab) {
+        twitchTab.classList.remove('hidden');
+        twitchTab.style.display = 'flex';
+      }
+      // Подсвечиваем активную кнопку в сайдбаре
+      document.querySelectorAll('aside nav button').forEach(b => {
+        b.classList.remove('bg-white/10', 'text-white');
+        b.classList.add('text-slate-400');
+      });
+      twitchNavBtn.classList.remove('text-slate-400');
+      twitchNavBtn.classList.add('bg-white/10', 'text-white');
+    };
+  }
+}
+
+
+// ==========================================
+// СИСТЕМА АВТОМАТИЧЕСКОГО ОБНОВЛЕНИЯ ЛАУНЧЕРА
+// ==========================================
+async function checkLauncherUpdatesAuto() {
+  try {
+    const res = await window.fenixAPI.checkLauncherUpdate();
+    if (res && res.updateAvailable) {
+      const modal = document.getElementById('update-modal');
+      const verLabel = document.getElementById('update-version-label');
+      const changelog = document.getElementById('update-changelog');
+      const btnNow = document.getElementById('btn-update-now');
+      const btnLater = document.getElementById('btn-update-later');
+
+      if (verLabel) verLabel.textContent = `Доступна версия v${res.latestVersion}`;
+      if (changelog && res.changelog) {
+        changelog.innerHTML = res.changelog.replace(/\n/g, '<br/>');
+      } else if (changelog) {
+        changelog.textContent = 'Улучшена стабильность, добавлены новые функции и исправления ошибок.';
+      }
+
+      if (modal) modal.classList.remove('hidden');
+
+      if (btnLater) {
+        btnLater.onclick = () => modal.classList.add('hidden');
+      }
+
+      if (btnNow) {
+        btnNow.onclick = async () => {
+          btnNow.disabled = true;
+          btnNow.textContent = 'Загрузка...';
+          await window.fenixAPI.installLauncherUpdate(res.downloadUrl);
+        };
+      }
     }
-  });
-
-  // При открытии вкладки Twitch обновляем плеер
-  if (tabName === 'twitch') {
-    initTwitchPlayer();
+  } catch (err) {
+    console.error('[AutoUpdater] Ошибка проверки обновлений:', err);
   }
-};
+}
 
-// Мгновенное обновление никнейма в DOM
-function applyNickToUI(name, typeBadge) {
+
+function updateProfileVisuals(name, typeBadge) {
   const finalName = (name && name.trim() !== '') ? name.trim() : 'Новый игрок';
-  const userEl = document.getElementById('sidebar-username');
-  if (userEl) userEl.textContent = finalName;
-
-  const accEl = document.getElementById('sidebar-account-type');
-  if (accEl && typeBadge) accEl.textContent = typeBadge;
-
-  const inputEl = document.getElementById('sidebar-nick-input');
-  if (inputEl && inputEl.value !== finalName) inputEl.value = finalName;
+  document.querySelectorAll('#sidebar-username, #sidebar-display-name, .user-display-name').forEach(el => { el.textContent = finalName; });
+  document.querySelectorAll('#sidebar-account-type, #sidebar-status-badge').forEach(el => { if (typeBadge) el.textContent = typeBadge; });
+  const cfgUser = document.getElementById('cfg-username');
+  if (cfgUser) cfgUser.value = finalName;
 }
 
-// Умный плеер Twitch (Live Stream -> Последний VOD)
-let isStreamLoaded = false;
-async function initTwitchPlayer() {
-  const box = document.getElementById('twitch-player-box');
-  const badge = document.getElementById('twitch-mode-badge');
-  const subStatus = document.getElementById('twitch-sub-status');
-  if (!box) return;
 
-  // Проверяем онлайн через прямой стрим
-  box.innerHTML = `
-    <iframe
-      src="https://player.twitch.tv/?channel=bloodrayt&parent=localhost&autoplay=true&muted=false"
-      class="w-full h-full border-0 rounded-2xl"
-      allowfullscreen>
-    </iframe>
-  `;
-
-  if (badge) badge.textContent = 'Прямой эфир / VOD';
-  if (subStatus) subStatus.textContent = 'Плеер канала BloodRayT (Live & Записи стримов)';
-}
-
-// Управление профилем игрока
-function setupProfile() {
-  const saveBtn = document.getElementById('btn-sidebar-save-nick');
-  const nickInput = document.getElementById('sidebar-nick-input');
-  const accSelect = document.getElementById('sidebar-acc-type');
+function setupProfileWidget() {
+  const avatarContainer = document.getElementById('avatar-container');
+  const avatarImg = document.getElementById('sidebar-avatar-img');
+  const avatarInput = document.getElementById('avatar-file-input');
+  const accTypeSelect = document.getElementById('sidebar-acc-type');
   const offlineBox = document.getElementById('sidebar-offline-box');
   const licenseBox = document.getElementById('sidebar-license-box');
+  const nickInput = document.getElementById('sidebar-nick-input');
+  const btnSaveNick = document.getElementById('btn-sidebar-save-nick');
+  const licenseLogin = document.getElementById('sidebar-license-login');
+  const licensePass = document.getElementById('sidebar-license-pass');
+  const btnLoginLicense = document.getElementById('btn-sidebar-login-license');
   const authMsg = document.getElementById('sidebar-auth-msg');
+  const usernameEl = document.getElementById('sidebar-username');
+  const accountTypeEl = document.getElementById('sidebar-account-type');
 
-  if (accSelect) {
-    accSelect.addEventListener('change', () => {
-      if (accSelect.value === 'mojang') {
+  if (currentConfig.avatarData && avatarImg) {
+    avatarImg.src = currentConfig.avatarData;
+  }
+
+  if (avatarContainer && avatarInput) {
+    avatarContainer.onclick = () => avatarInput.click();
+    avatarInput.onchange = (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      if (file.size > 2 * 1024 * 1024) {
+        if (authMsg) authMsg.textContent = 'Файл больше 2 МБ!';
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const img = new Image();
+        img.onload = async () => {
+          const canvas = document.createElement('canvas');
+          canvas.width = 128;
+          canvas.height = 128;
+          const ctx = canvas.getContext('2d');
+          const minSide = Math.min(img.width, img.height);
+          ctx.drawImage(img, (img.width - minSide)/2, (img.height - minSide)/2, minSide, minSide, 0, 0, 128, 128);
+          const b64 = canvas.toDataURL('image/webp', 0.85);
+          if (avatarImg) avatarImg.src = b64;
+          currentConfig.avatarData = b64;
+          await window.fenixAPI.saveConfig(currentConfig);
+          if (authMsg) authMsg.textContent = 'Аватарка сохранена!';
+          setTimeout(() => { if (authMsg) authMsg.textContent = ''; }, 2000);
+        };
+        img.src = ev.target?.result;
+      };
+      reader.readAsDataURL(file);
+    };
+  }
+
+  const updateUI = () => {
+    const isMojang = currentConfig.accountType === 'mojang';
+    if (accTypeSelect) accTypeSelect.value = isMojang ? 'mojang' : 'offline';
+    if (isMojang) {
+      offlineBox?.classList.add('hidden');
+      licenseBox?.classList.remove('hidden');
+      if (accountTypeEl) accountTypeEl.textContent = 'Лицензия';
+    } else {
+      offlineBox?.classList.remove('hidden');
+      licenseBox?.classList.add('hidden');
+      if (accountTypeEl) accountTypeEl.textContent = 'Пиратка';
+    }
+
+    const name = (currentConfig.username && currentConfig.username.trim() !== '') ? currentConfig.username : 'Новый игрок';
+    if (usernameEl) usernameEl.textContent = name;
+    if (nickInput && !isMojang) nickInput.value = currentConfig.username || '';
+    if (licenseLogin && isMojang) licenseLogin.value = currentConfig.licenseLogin || '';
+
+    const cfgUser = document.getElementById('cfg-username');
+    if (cfgUser && currentConfig.username) cfgUser.value = currentConfig.username;
+  };
+
+  updateUI();
+
+  if (accTypeSelect) {
+    accTypeSelect.onchange = () => {
+      if (accTypeSelect.value === 'mojang') {
         offlineBox?.classList.add('hidden');
         licenseBox?.classList.remove('hidden');
       } else {
         offlineBox?.classList.remove('hidden');
         licenseBox?.classList.add('hidden');
       }
-    });
+    };
   }
 
-  if (saveBtn && nickInput) {
-    saveBtn.addEventListener('click', async (e) => {
-      e.preventDefault();
-      const newNick = nickInput.value.trim();
-      if (!newNick) {
+  if (btnSaveNick && nickInput) {
+    btnSaveNick.onclick = async () => {
+      const val = nickInput.value.trim();
+      if (!val) {
         if (authMsg) authMsg.textContent = 'Введите никнейм!';
         return;
       }
-
-      // МГНОВЕННО меняем текст в шапке
-      applyNickToUI(newNick, 'Пиратка');
-
-      currentConfig.username = newNick;
+      currentConfig.username = val;
       currentConfig.accountType = 'offline';
+      updateProfileVisuals(val, 'Пиратка');
       await window.fenixAPI.saveConfig(currentConfig);
-
-      saveBtn.textContent = '✅ Сохранено!';
-      if (authMsg) authMsg.textContent = `Ник сохранен: ${newNick}`;
-      setTimeout(() => {
-        saveBtn.textContent = 'Сохранить ник';
-        if (authMsg) authMsg.textContent = '';
-      }, 2000);
-    });
+      updateUI();
+      btnSaveNick.textContent = '✅ Сохранено!';
+      if (authMsg) authMsg.textContent = `Ник сохранен: ${val}`;
+      setTimeout(() => { btnSaveNick.textContent = 'Сохранить ник'; if (authMsg) authMsg.textContent = ''; }, 2500);
+    };
   }
 
-  const loginLicBtn = document.getElementById('btn-sidebar-login-license');
-  const licLoginInput = document.getElementById('sidebar-license-login');
-  const licPassInput = document.getElementById('sidebar-license-pass');
-  if (loginLicBtn) {
-    loginLicBtn.addEventListener('click', async () => {
-      const login = licLoginInput?.value.trim();
-      const pass = licPassInput?.value.trim();
-      if (!login || !pass) return;
+  if (btnLoginLicense && licenseLogin && licensePass) {
+    btnLoginLicense.onclick = async () => {
+      const login = licenseLogin.value.trim();
+      const pass = licensePass.value.trim();
+      if (!login || !pass) {
+        if (authMsg) authMsg.textContent = 'Введите логин и пароль!';
+        return;
+      }
+      btnLoginLicense.textContent = 'Подключение...';
+      if (authMsg) authMsg.textContent = 'Связь с Mojang...';
 
-      loginLicBtn.textContent = 'Вход...';
       const res = await window.fenixAPI.mojangAuth(login, pass);
       if (res && res.success) {
-        applyNickToUI(res.username, 'Лицензия');
         currentConfig.username = res.username;
+        currentConfig.licenseLogin = login;
+        currentConfig.licenseToken = res.token;
+        currentConfig.licenseUuid = res.uuid;
         currentConfig.accountType = 'mojang';
+        updateProfileVisuals(res.username, 'Лицензия');
         await window.fenixAPI.saveConfig(currentConfig);
-        loginLicBtn.textContent = '✅ Успешно!';
+        updateUI();
+        btnLoginLicense.textContent = '✅ Успешно!';
+        if (authMsg) authMsg.textContent = `Лицензия: ${res.username}`;
+        licensePass.value = '';
+        setTimeout(() => { btnLoginLicense.textContent = 'Войти (Mojang)'; }, 2500);
       } else {
-        loginLicBtn.textContent = 'Ошибка';
+        btnLoginLicense.textContent = 'Ошибка входа';
+        if (authMsg) authMsg.textContent = res.error || 'Неверный логин/пароль';
+        setTimeout(() => { btnLoginLicense.textContent = 'Войти (Mojang)'; }, 3000);
       }
-      setTimeout(() => { loginLicBtn.textContent = 'Войти (Mojang)'; }, 2000);
-    });
+    };
   }
 }
 
-// Загрузка товаров магазина
+const tauriCore = window.__TAURI__?.core;
+const tauriEvent = window.__TAURI__?.event;
+const tauriDialog = window.__TAURI__?.dialog;
+
+window.fenixAPI = {
+  minimize: () => tauriCore?.invoke('window_minimize'),
+  maximize: () => tauriCore?.invoke('window_maximize'),
+  close: () => tauriCore?.invoke('window_close'),
+  openUrl: (url) => tauriCore ? tauriCore.invoke('open_external_url', { url }) : window.open(url, '_blank'),
+  getConfig: () => tauriCore ? tauriCore.invoke('get_config') : Promise.resolve({
+    username: 'AndreyGusev', accountType: 'offline', ram: 4096, width: 1920, height: 1080,
+    javaPath: '', jvmArgs: '-XX:+UseG1GC', showConsole: false, debugMode: false,
+    selectedVersion: 'latest-vanilla', selectedServer: 'play.fenixcraft.ru', vkToken: ''
+  }),
+  saveConfig: (newConfig) => tauriCore ? tauriCore.invoke('save_config', { newConfig }) : Promise.resolve(newConfig),
+  selectJava: async () => {
+    if (!tauriDialog?.open) return null;
+    return await tauriDialog.open({ multiple: false, directory: false, title: 'Выберите Java 21+ (java / javaw.exe)' });
+  },
+  getServersStatus: (servers) => tauriCore ? tauriCore.invoke('get_servers_status', { servers }) : Promise.resolve({}),
+  checkTwitchLive: () => tauriCore ? tauriCore.invoke('check_twitch_live') : Promise.resolve({ live: false }),
+  getVkNews: async () => {
+    if (!tauriCore) return { success: false };
+    const res = await tauriCore.invoke('get_vk_news');
+    if (res && res.success) {
+      if (Array.isArray(res.posts) && res.posts.length > 0) {
+        return { success: true, posts: res.posts };
+      }
+      if (Array.isArray(res.data) && res.data.length > 0) {
+        const posts = res.data.map(post => {
+          const photo = post.attachments?.find(a => a.type === 'photo')?.photo?.sizes?.pop()?.url;
+          const clean = (post.text || 'Новость сообщества FenixCraft').trim();
+          return {
+            tag: 'VK.RU/FENIXCRAFT',
+            tagColor: 'bg-emerald-500 text-slate-950',
+            title: clean.split('\n')[0].substring(0, 55) || 'FenixCraft ВК',
+            text: clean,
+            date: new Date(post.date * 1000).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }),
+            image: photo || 'https://images.unsplash.com/photo-1607513746994-51f730a44832?w=600&q=80',
+            url: `https://vk.ru/fenixcraft?w=wall${post.owner_id}_${post.id}`
+          };
+        });
+        return { success: true, posts };
+      }
+    }
+    return { success: false };
+  },
+  verifyAssets: () => tauriCore ? tauriCore.invoke('verify_assets_command') : Promise.resolve({ ok: true }),
+  checkLauncherUpdate: () => tauriCore ? tauriCore.invoke('check_launcher_update') : Promise.resolve({ updateAvailable: false }),
+  installLauncherUpdate: (downloadUrl) => tauriCore ? tauriCore.invoke('install_launcher_update', { downloadUrl }) : Promise.resolve(),
+  mojangAuth: (username, password) => tauriCore ? tauriCore.invoke('mojang_authenticate', { username, password }) : Promise.resolve({ success: false, error: 'Tauri недоступен' }),
+  saveDebugLog: (consoleText, customPath) => tauriCore ? tauriCore.invoke('save_debug_log', { consoleText, customPath }) : Promise.resolve({ success: false }),
+  launchGame: () => tauriCore ? tauriCore.invoke('launch_game') : Promise.resolve({ status: 'launched' }),
+  onLog: (cb) => tauriEvent?.listen('game:log', (event) => cb(event.payload)),
+  onProgress: (cb) => tauriEvent?.listen('game:progress', (event) => cb(event.payload)),
+  onClosed: (cb) => tauriEvent?.listen('game:closed', () => cb())
+};
+
+const MY_SERVERS = [
+  { id: 'fenix-main', name: 'FenixCraft', desc: 'Выживание • Vanilla/Mods', ip: 'play.fenixcraft.ru', port: 25565, icon: '🦅', maxDefault: 1000 },
+  { id: 'fenix-mods', name: 'FenixTech', desc: 'NeoForge • 1.21.1', ip: 'tech.fenixcraft.ru', port: 25565, icon: '⚙️', maxDefault: 500 },
+  { id: 'fenix-rpg',  name: 'FenixRPG',  desc: 'Fabric + Iris • 26.3', ip: 'rpg.fenixcraft.ru', port: 25565, icon: '⚔️', maxDefault: 500 },
+  { id: 'fenix-pvp',  name: 'FenixArena', desc: 'Анархия • 1.21.8', ip: 'pvp.fenixcraft.ru', port: 25565, icon: '⭐', maxDefault: 300 }
+];
+
+const SHOP_ITEMS = [
+  {
+    id: 'vip',
+    name: 'Привилегия [VIP]',
+    price: '149 ₽',
+    badge: 'Хит продаж',
+    color: 'from-amber-500/20 to-yellow-600/5 border-amber-500/40',
+    btnColor: 'bg-amber-500 hover:bg-amber-400 text-slate-950',
+    icon: '👑',
+    perks: [
+      'Префикс [VIP] в чате и табе',
+      'Полет /fly в лобби и приватных зонах',
+      'Доступ к киту /kit vip каждые 24ч',
+      'Вход на переполненный сервер',
+      '5 дополнительных точек дома /sethome'
+    ]
+  },
+  {
+    id: 'creativ',
+    name: 'Привилегия [Creative]',
+    price: '299 ₽',
+    badge: 'Строителям',
+    color: 'from-cyan-500/20 to-blue-600/5 border-cyan-500/40',
+    btnColor: 'bg-cyan-400 hover:bg-cyan-300 text-slate-950',
+    icon: '🎨',
+    perks: [
+      'Режим креатива /gm 1 в разрешенных мирах',
+      'Доступ к командам WorldEdit (//set, //copy)',
+      'Префикс [Creative] и цветной чат',
+      'Эксклюзивный набор /kit creative',
+      'Все возможности привилегии VIP'
+    ]
+  },
+  {
+    id: 'moder',
+    name: 'Привилегия [Moder]',
+    price: '599 ₽',
+    badge: 'Страж порядка',
+    color: 'from-purple-500/20 to-indigo-600/5 border-purple-500/40',
+    btnColor: 'bg-purple-500 hover:bg-purple-400 text-white',
+    icon: '🛡️',
+    perks: [
+      'Команды модерации (/mute, /kick, /tp)',
+      'Просмотр инвентаря игроков /invsee',
+      'Режим невидимости /vanish',
+      'Ежедневный бонус /kit moder',
+      'Иммунитет к кику и муту'
+    ]
+  },
+  {
+    id: 'admin',
+    name: 'Привилегия [Admin]',
+    price: '999 ₽',
+    badge: 'Максимум прав',
+    color: 'from-rose-500/20 to-red-600/5 border-rose-500/40',
+    btnColor: 'bg-rose-500 hover:bg-rose-400 text-white',
+    icon: '⚡',
+    perks: [
+      'Полный набор прав [Admin] на сервере',
+      'Команды /ban, /tempban, /god, /heal',
+      'Управление погодой и временем в мире',
+      'Элитный кит /kit admin с топ-ресурсами',
+      'Включает все привилегии ниже'
+    ]
+  },
+  {
+    id: 'money',
+    name: 'Игровая валюта [Money]',
+    price: 'от 49 ₽',
+    badge: 'Экономика',
+    color: 'from-emerald-500/20 to-teal-600/5 border-emerald-500/40',
+    btnColor: 'bg-emerald-500 hover:bg-emerald-400 text-slate-950',
+    icon: '💰',
+    perks: [
+      'Пакеты: 50 000$, 250 000$, 1 000 000$',
+      'Мгновенное зачисление на баланс /money',
+      'Покупка редких ресурсов на аукционе /ah',
+      'Создание собственных варпов и кланов',
+      'Бонус +25% при покупке от 250 000$'
+    ]
+  }
+];
+
+const FALLBACK_NEWS = [
+  {
+    tag: 'VK.RU/FENIXCRAFT',
+    tagColor: 'bg-emerald-500 text-slate-950',
+    title: 'Сообщество FenixCraft ВКонтакте',
+    text: 'Нажмите на карточку, чтобы открыть официальную стену vk.ru/fenixcraft со всеми новостями и конкурсами!',
+    date: 'Официальная группа',
+    image: 'https://images.unsplash.com/photo-1607513746994-51f730a44832?w=600&q=80',
+    url: 'https://vk.ru/fenixcraft'
+  },
+  {
+    tag: 'Магазин',
+    tagColor: 'bg-amber-500 text-slate-950',
+    title: 'Привилегии VIP, Creative, Moder, Admin и Money',
+    text: 'Поддержите развитие сервера и получите уникальные возможности в разделе «Магазин».',
+    date: 'FenixCraft Shop',
+    image: 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=600&q=80',
+    url: 'https://fenixcraft.trademc.org/'
+  },
+  {
+    tag: 'Лаунчер v1.0',
+    tagColor: 'bg-cyan-500 text-slate-950',
+    title: 'Автозагрузка Java 21 и Latest Vanilla',
+    text: 'Лаунчер автоматически скачивает Java 21 (Adoptium) и последнюю версию игры напрямую с серверов Mojang.',
+    date: 'Релиз v1.0',
+    image: 'https://images.unsplash.com/photo-1534447677768-be436bb09401?w=600&q=80',
+    url: 'https://vk.ru/fenixcraft'
+  }
+];
+
+let currentConfig = {};
+
+function switchTab(tabId) {
+  if (tabId === 'play-now') {
+    switchTab('home');
+    document.getElementById('btn-play').click();
+    return;
+  }
+
+  ['home', 'shop', 'servers', 'settings', 'faq', 'console'].forEach(id => {
+    const el = document.getElementById(`tab-${id}`);
+    if (el) el.classList.add('hidden');
+  });
+  const target = document.getElementById(`tab-${tabId}`) || document.getElementById('tab-home');
+  target.classList.remove('hidden');
+
+  document.querySelectorAll('.nav-btn').forEach(btn => {
+    btn.classList.toggle('active-nav', btn.dataset.tab === tabId);
+  });
+}
+
+document.querySelectorAll('.nav-btn').forEach(btn => {
+  btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+});
+
+document.getElementById('btn-top-settings').onclick = () => switchTab('settings');
+document.getElementById('btn-quick-settings').onclick = () => switchTab('settings');
+document.getElementById('btn-open-faq').onclick = () => switchTab('faq');
+document.getElementById('btn-toggle-console').onclick = () => switchTab('console');
+
 function renderShop() {
-  const container = document.getElementById('shop-cards-grid');
-  if (!container) return;
-  const items = [
-    { title: 'Привилегия VIP', price: '149 ₽', desc: 'Цветной ник, полет в лобби, доступ к /kit vip' },
-    { title: 'Привилегия Premium', price: '349 ₽', desc: 'Все возможности VIP + /feed, /workbench, 5 точек дома' },
-    { title: 'Привилегия Creative', price: '599 ₽', desc: 'Креативный режим, доступ к миру построек, /fly везде' },
-    { title: 'Привилегия Admin', price: '1299 ₽', desc: 'Максимальный набор прав, префикс Администратора, бан/мут' },
-    { title: '1000 FenixCoins', price: '99 ₽', desc: 'Внутриигровая валюта для покупки кейсов и косметики' },
-    { title: '5000 FenixCoins', price: '399 ₽', desc: 'Выгодный пакет монет с бонусом +15% к начислению' },
-  ];
-  container.innerHTML = items.map(it => `
-    <div class="p-4 rounded-xl glass-card border border-white/5 space-y-2 flex flex-col justify-between">
+  const grid = document.getElementById('shop-grid');
+  grid.innerHTML = SHOP_ITEMS.map(item => `
+    <div class="rounded-2xl p-4 bg-gradient-to-br ${item.color} border flex flex-col justify-between space-y-4">
       <div>
         <div class="flex items-center justify-between">
-          <span class="font-bold text-white text-sm">${it.title}</span>
-          <span class="text-xs font-black text-emerald-400 px-2 py-0.5 rounded bg-emerald-500/10">${it.price}</span>
+          <span class="text-2xl">${item.icon}</span>
+          <span class="text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-white/10 text-white">${item.badge}</span>
         </div>
-        <p class="text-[11px] text-slate-400 mt-1">${it.desc}</p>
+        <h3 class="text-base font-extrabold text-white mt-2">${item.name}</h3>
+        <div class="text-xl font-black text-emerald-400 mt-0.5">${item.price}</div>
+        <ul class="text-xs text-slate-300 space-y-1.5 mt-3">
+          ${item.perks.map(p => `<li class="flex items-start space-x-1.5"><span class="text-emerald-400">✔</span><span>${p}</span></li>`).join('')}
+        </ul>
       </div>
-      <a href="https://fenixcraft.ru/shop" target="_blank" class="mt-3 block text-center py-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-lg text-xs transition">Купить</a>
+      <button onclick="buyPrivilege('${item.id}')" class="w-full py-2.5 rounded-xl font-bold text-xs transition active:scale-95 ${item.btnColor}">
+        Купить для ${currentConfig.username || 'Игрока'}
+      </button>
     </div>
   `).join('');
 }
 
-// Рендер серверов в боковой панели и на вкладке
-function renderServers() {
-  const servers = [
-    { name: 'FenixCraft', desc: 'Выживание • Vanilla/Mods', ip: 'play.fenixcraft.ru', online: '0/1000' },
-    { name: 'FenixTech', desc: 'NeoForge • 1.21.1', ip: 'tech.fenixcraft.ru', online: '0/500' },
-    { name: 'FenixRPG', desc: 'Fabric + Iris • 1.21.11', ip: 'rpg.fenixcraft.ru', online: '0/500' },
-    { name: 'FenixArena', desc: 'Анархия • 1.21.11', ip: 'pvp.fenixcraft.ru', online: '0/300' },
-  ];
+window.buyPrivilege = (itemId) => {
+  const nick = encodeURIComponent(currentConfig.username || 'Player');
+  window.fenixAPI.openUrl(`https://fenixcraft.trademc.org/?nickname=${nick}&item=${itemId}`);
+};
 
-  const quick = document.getElementById('sidebar-servers-quick');
-  if (quick) {
-    quick.innerHTML = servers.map(s => `
-      <div class="p-2.5 rounded-xl glass-card flex items-center justify-between text-xs">
+function renderNews(posts) {
+  const grid = document.getElementById('news-grid');
+  grid.innerHTML = posts.slice(0, 3).map(p => `
+    <div onclick="window.fenixAPI.openUrl('${p.url || 'https://vk.ru/fenixcraft'}')"
+         class="glass-card rounded-xl overflow-hidden flex flex-col justify-between border border-white/5 hover:border-emerald-500/40 transition cursor-pointer">
+      <div class="h-28 bg-cover bg-center relative" style="background-image: url('${p.image}')">
+        <span class="absolute bottom-2 left-2 text-[10px] font-bold px-2.5 py-0.5 rounded-full ${p.tagColor || 'bg-emerald-500 text-slate-950'}">
+          ${p.tag || 'VK.RU/FENIXCRAFT'}
+        </span>
+      </div>
+      <div class="p-3.5 flex-1 flex flex-col justify-between space-y-2">
         <div>
-          <div class="font-bold text-white">${s.name}</div>
-          <div class="text-[10px] text-slate-400">${s.desc}</div>
+          <h4 class="text-sm font-bold text-white line-clamp-1">${p.title || 'Новость FenixCraft'}</h4>
+          <p class="text-xs text-slate-400 mt-1 line-clamp-2">${p.text}</p>
         </div>
-        <div class="text-[10px] text-emerald-400 font-bold flex items-center space-x-1">
-          <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-          <span>${s.online}</span>
+        <div class="text-[11px] text-emerald-400/80 pt-1 flex justify-between items-center">
+          <span>📅 ${p.date}</span>
+          <span>Читать в ВК ↗</span>
         </div>
       </div>
-    `).join('');
-  }
-
-  const full = document.getElementById('servers-list-container');
-  if (full) {
-    full.innerHTML = servers.map(s => `
-      <div class="p-4 rounded-xl glass-card flex items-center justify-between">
-        <div>
-          <h3 class="text-sm font-bold text-white">${s.name}</h3>
-          <p class="text-xs text-slate-400">${s.desc} • IP: <span class="text-emerald-400 font-mono">${s.ip}</span></p>
-        </div>
-        <button class="px-4 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold rounded-xl transition" onclick="document.getElementById('btn-play').click()">Подключиться</button>
-      </div>
-    `).join('');
-  }
-}
-
-// Рендер новостей ВК
-function renderNews() {
-  const grid = document.getElementById('vk-news-grid');
-  if (!grid) return;
-  const news = [
-    { title: 'Сообщество FenixCraft ВКонтакте', tag: 'VK.RU/FENIXCRAFT', text: 'Следите за обновлениями, конкурсами и техническими работами.', link: 'https://vk.com/fenixcraft' },
-    { title: 'Привилегии VIP, Creative, Admin', tag: 'Магазин', text: 'Поддержите развитие проекта и получите уникальные возможности.', link: 'https://fenixcraft.ru/shop' },
-    { title: 'Автозагрузка Java 21 Adoptium', tag: 'Релиз v1.0.4', text: 'Лаунчер автоматически скачивает чистую Java для максимального FPS.', link: 'https://fenixcraft.ru' }
-  ];
-  grid.innerHTML = news.map(n => `
-    <div class="p-4 rounded-xl glass-card border border-white/5 space-y-2 flex flex-col justify-between">
-      <div>
-        <span class="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded">${n.tag}</span>
-        <h4 class="font-bold text-white text-xs mt-2">${n.title}</h4>
-        <p class="text-[11px] text-slate-400 mt-1">${n.text}</p>
-      </div>
-      <a href="${n.link}" target="_blank" class="text-xs text-emerald-400 hover:underline pt-2">Читать далее →</a>
     </div>
   `).join('');
 }
 
-// Инициализация
-document.addEventListener('DOMContentLoaded', async () => {
-  // Навигация
-  document.querySelectorAll('#sidebar-nav button').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const tab = btn.getAttribute('data-tab');
-      if (tab) switchTab(tab);
+async function loadVkNews() {
+  const res = await window.fenixAPI.getVkNews();
+  if (res.success && res.posts && res.posts.length > 0) {
+    renderNews(res.posts);
+  } else {
+    renderNews(FALLBACK_NEWS);
+  }
+}
+
+
+function getActiveServersList() {
+  if (currentConfig && Array.isArray(currentConfig.customServers) && currentConfig.customServers.length > 0) {
+    return currentConfig.customServers;
+  }
+  return MY_SERVERS;
+}
+
+window.addOrUpdateCustomServer = async () => {
+  const name = document.getElementById('new-srv-name').value.trim();
+  const desc = document.getElementById('new-srv-desc').value.trim() || 'Сервер FenixCraft';
+  const ip = document.getElementById('new-srv-ip').value.trim();
+  const port = parseInt(document.getElementById('new-srv-port').value, 10) || 25565;
+  if (!name || !ip) return;
+
+  const list = [...getActiveServersList()];
+  const existingIdx = list.findIndex(s => s.ip.toLowerCase() === ip.toLowerCase() || s.name.toLowerCase() === name.toLowerCase());
+  const item = {
+    id: existingIdx >= 0 ? list[existingIdx].id : 'srv-' + Date.now(),
+    name,
+    desc,
+    ip,
+    port,
+    icon: existingIdx >= 0 ? list[existingIdx].icon : '🦅',
+    maxDefault: 1000
+  };
+
+  if (existingIdx >= 0) list[existingIdx] = item;
+  else list.push(item);
+
+  currentConfig = await window.fenixAPI.saveConfig({ ...currentConfig, customServers: list, selectedServer: ip });
+  document.getElementById('new-srv-name').value = '';
+  document.getElementById('new-srv-desc').value = '';
+  document.getElementById('new-srv-ip').value = '';
+  await refreshServers();
+};
+
+window.removeCustomServer = async (e, id) => {
+  e.stopPropagation();
+  const list = getActiveServersList().filter(s => s.id !== id);
+  currentConfig = await window.fenixAPI.saveConfig({ ...currentConfig, customServers: list });
+  await refreshServers();
+};
+
+window.resetDefaultServers = async () => {
+  currentConfig = await window.fenixAPI.saveConfig({ ...currentConfig, customServers: MY_SERVERS });
+  await refreshServers();
+};
+
+
+const btnCopyConsole = document.getElementById('btn-copy-console');
+if (btnCopyConsole) {
+  btnCopyConsole.onclick = async () => {
+    const out = document.getElementById('console-output');
+    const selected = window.getSelection()?.toString();
+    const textToCopy = selected && selected.length > 0 ? selected : (out?.textContent || '');
+    try {
+      await navigator.clipboard.writeText(textToCopy);
+      const oldText = btnCopyConsole.textContent;
+      btnCopyConsole.textContent = '✅ Скопировано!';
+      setTimeout(() => { btnCopyConsole.textContent = oldText; }, 2000);
+    } catch (e) {}
+  };
+}
+
+const btnSaveDebug = document.getElementById('btn-save-debug');
+if (btnSaveDebug) {
+  btnSaveDebug.onclick = async () => {
+    const out = document.getElementById('console-output');
+    const text = out?.textContent || '';
+    let chosenPath = null;
+    if (tauriDialog?.save) {
+      try {
+        chosenPath = await tauriDialog.save({
+          title: 'Сохранить Debug-лог лаунчера',
+          defaultPath: 'fenixcraft-debug.log',
+          filters: [{ name: 'Log Files', extensions: ['log', 'txt'] }]
+        });
+      } catch (e) {}
+    }
+    const res = await window.fenixAPI.saveDebugLog(text, chosenPath);
+    if (res && res.success) {
+      out.textContent += `\n[ Debug Saved ] Лог успешно сохранен в файл: ${res.path}\n`;
+      out.scrollTop = out.scrollHeight;
+    }
+  };
+}
+
+const btnVerifyAssets = document.getElementById('btn-verify-assets');
+if (btnVerifyAssets) {
+  btnVerifyAssets.onclick = async () => {
+    await window.fenixAPI.verifyAssets();
+  };
+}
+
+async function refreshServers() {
+  const container = document.getElementById('servers-list');
+  const fullContainer = document.getElementById('servers-full-list');
+  const activeList = getActiveServersList();
+  const statusMap = await window.fenixAPI.getServersStatus(activeList);
+
+  const html = activeList.map(srv => {
+    const st = statusMap[srv.id] || { online: false, players: 0, maxPlayers: srv.maxDefault };
+    const isSelected = currentConfig.selectedServer === srv.ip;
+    return `
+      <div onclick="selectServer('${srv.ip}')"
+           class="glass-card p-3 rounded-xl flex items-center justify-between cursor-pointer transition border ${isSelected ? 'border-emerald-500 bg-emerald-500/10' : 'border-white/5 hover:border-white/20'}">
+        <div class="flex items-center space-x-3">
+          <div class="w-9 h-9 rounded-full bg-slate-800 flex items-center justify-center text-base">${srv.icon}</div>
+          <div>
+            <div class="text-xs font-bold text-white">${srv.name}</div>
+            <div class="text-[10px] text-slate-400">${srv.desc} • ${srv.ip}</div>
+          </div>
+        </div>
+        <div class="text-xs font-semibold flex items-center space-x-1.5 ${st.online ? 'text-emerald-400' : 'text-slate-500'}">
+          <span class="w-2 h-2 rounded-full ${st.online ? 'bg-emerald-400' : 'bg-red-500'}"></span>
+          <span>${st.players}/${st.maxPlayers}</span>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  container.innerHTML = html;
+  if (fullContainer) fullContainer.innerHTML = html;
+}
+
+window.selectServer = async (ip) => {
+  currentConfig = await window.fenixAPI.saveConfig({ ...currentConfig, selectedServer: ip });
+  refreshServers();
+};
+
+async function bindSettings() {
+  currentConfig = await window.fenixAPI.getConfig();
+
+  const elUser = document.getElementById('cfg-username');
+  const elAccType = document.getElementById('cfg-account-type');
+  const elRam = document.getElementById('cfg-ram');
+  const elRamLabel = document.getElementById('ram-label');
+  const elWidth = document.getElementById('cfg-width');
+  const elHeight = document.getElementById('cfg-height');
+  const elJava = document.getElementById('cfg-java');
+  const elArgs = document.getElementById('cfg-args');
+  const elConsole = document.getElementById('cfg-console');
+  const elDebug = document.getElementById('cfg-debug');
+  const elVersion = document.getElementById('select-version');
+
+  elUser.value = currentConfig.username;
+  elAccType.value = currentConfig.accountType;
+  elRam.value = currentConfig.ram;
+  elRamLabel.textContent = `${currentConfig.ram} МБ`;
+  elWidth.value = currentConfig.width;
+  elHeight.value = currentConfig.height;
+  elJava.value = currentConfig.javaPath;
+  elArgs.value = currentConfig.jvmArgs;
+  elConsole.checked = currentConfig.showConsole;
+  elDebug.checked = currentConfig.debugMode;
+  const validVersions = ['latest-vanilla','1.21.11-vanilla','1.21.1-neoforge','1.21.11-fabric','1.21.11-iris','1.21.1-iris-neoforge','1.21.11-iris-fabric'];
+  elVersion.value = validVersions.includes(currentConfig.selectedVersion) ? currentConfig.selectedVersion : 'latest-vanilla';
+
+  document.getElementById('sidebar-username').textContent = currentConfig.username;
+  document.getElementById('last-launch-ver').textContent = elVersion.options[elVersion.selectedIndex]?.text || 'Vanilla';
+
+  const autoSave = async () => {
+    elRamLabel.textContent = `${elRam.value} МБ`;
+    currentConfig = await window.fenixAPI.saveConfig({
+      username: elUser.value.trim() || 'Player',
+      accountType: elAccType.value,
+      ram: parseInt(elRam.value, 10),
+      width: parseInt(elWidth.value, 10),
+      height: parseInt(elHeight.value, 10),
+      javaPath: elJava.value.trim(),
+      jvmArgs: elArgs.value.trim(),
+      showConsole: elConsole.checked,
+      debugMode: elDebug.checked,
+      selectedVersion: elVersion.value,
+      selectedServer: currentConfig.selectedServer || 'play.fenixcraft.ru',
+      vkToken: currentConfig.vkToken || ''
     });
+    document.getElementById('sidebar-username').textContent = currentConfig.username;
+    document.getElementById('sidebar-account-type').textContent =
+      currentConfig.accountType === 'microsoft' ? 'Лицензия' : 'Онлайн';
+    document.getElementById('last-launch-ver').textContent = elVersion.options[elVersion.selectedIndex]?.text || 'Vanilla';
+    renderShop();
+  };
+
+  [elUser, elAccType, elRam, elWidth, elHeight, elJava, elArgs, elConsole, elDebug, elVersion].forEach(el => {
+    el.addEventListener('input', autoSave);
+    el.addEventListener('change', autoSave);
   });
 
-  setupProfile();
-  renderShop();
-  renderServers();
-  renderNews();
-
-  const reloadStreamBtn = document.getElementById('btn-reload-stream');
-  if (reloadStreamBtn) {
-    reloadStreamBtn.addEventListener('click', () => initTwitchPlayer());
-  }
-
-  // Загружаем конфиг
-  try {
-    const cfg = await window.fenixAPI.getConfig();
-    if (cfg && cfg.username) {
-      currentConfig = cfg;
-      applyNickToUI(cfg.username, cfg.accountType === 'mojang' ? 'Лицензия' : 'Пиратка');
+  document.getElementById('btn-browse-java').onclick = async () => {
+    const selected = await window.fenixAPI.selectJava();
+    if (selected) {
+      elJava.value = selected;
+      autoSave();
     }
-  } catch(e) {}
+  };
+}
 
-  // Кнопка Играть
-  const btnPlay = document.getElementById('btn-play');
-  const selVer = document.getElementById('select-version');
-  if (btnPlay) {
-    btnPlay.addEventListener('click', async () => {
-      btnPlay.disabled = true;
-      btnPlay.innerHTML = '<span>⏳ Запуск...</span>';
-      await window.fenixAPI.launchGame(selVer?.value || 'latest-vanilla', currentConfig.username, currentConfig.ram);
-      setTimeout(() => {
-        btnPlay.disabled = false;
-        btnPlay.innerHTML = '<span class="text-base">▶</span><span class="text-sm tracking-wide">Играть</span>';
-      }, 4000);
-    });
-  }
+document.getElementById('btn-play').addEventListener('click', async () => {
+  const btn = document.getElementById('btn-play');
+  const txt = document.getElementById('btn-play-text');
+  const progBox = document.getElementById('progress-container');
 
-  const btnFolder = document.getElementById('btn-open-folder');
-  if (btnFolder) {
-    btnFolder.addEventListener('click', () => window.fenixAPI.openFolder(''));
+  btn.disabled = true;
+  txt.textContent = 'Скачивание...';
+  progBox.classList.remove('hidden');
+
+  if (currentConfig.showConsole) switchTab('console');
+
+  const res = await window.fenixAPI.launchGame();
+  if (res.status === 'error') {
+    btn.disabled = false;
+    txt.textContent = 'Играть';
   }
 });
+
+window.fenixAPI.onLog((msg) => {
+  const out = document.getElementById('console-output');
+  out.textContent += msg + '\n';
+  out.scrollTop = out.scrollHeight;
+});
+
+window.fenixAPI.onProgress((prog) => {
+  const percent = Math.round((prog.task / prog.total) * 100) || 0;
+  document.getElementById('progress-status').textContent = `${prog.type} (${prog.task}/${prog.total})`;
+  document.getElementById('progress-percent').textContent = `${percent}%`;
+  document.getElementById('progress-bar').style.width = `${percent}%`;
+});
+
+window.fenixAPI.onClosed(() => {
+  document.getElementById('btn-play').disabled = false;
+  document.getElementById('btn-play-text').textContent = 'Играть';
+  document.getElementById('progress-container').classList.add('hidden');
+});
+
+document.getElementById('btn-refresh-news').onclick = loadVkNews;
+document.getElementById('btn-ping-servers').onclick = refreshServers;
+
+
+// Проверка статуса стрима https://www.twitch.tv/bloodrayt
+async function updateTwitchStatus() {
+  try {
+    const res = await window.fenixAPI.checkTwitchLive();
+    const label = document.getElementById('twitch-label');
+    const dot = document.getElementById('twitch-live-dot');
+    if (!label || !dot) return;
+
+    if (res && res.live) {
+      label.classList.add('twitch-live-active');
+      label.textContent = 'Twitch • LIVE';
+      dot.classList.remove('hidden');
+    } else {
+      label.classList.remove('twitch-live-active');
+      label.textContent = 'Twitch';
+      dot.classList.add('hidden');
+    }
+  } catch (e) {}
+}
+
+
+async function checkForLauncherUpdates() {
+  try {
+    const res = await window.fenixAPI.checkLauncherUpdate();
+    const btn = document.getElementById('btn-update-launcher');
+    if (res && res.updateAvailable && btn) {
+      btn.textContent = `⬇ Обновить до v${res.latestVersion}`;
+      btn.classList.remove('hidden');
+      btn.onclick = async () => {
+        btn.textContent = 'Загрузка обновления...';
+        await window.fenixAPI.installLauncherUpdate(res.downloadUrl);
+      };
+    }
+  } catch (e) {}
+}
+
+
+// --- УПРАВЛЕНИЕ БЛОКОМ ИГРОКА (АВАТАРКА, ПИРАТКА / ЛИЦЕНЗИЯ, СОХРАНЕНИЕ) ---
+function setupProfileBlock() {
+  const avatarContainer = document.getElementById('avatar-container');
+  const avatarImg = document.getElementById('sidebar-avatar-img');
+  const avatarInput = document.getElementById('avatar-file-input');
+  const accTypeSelect = document.getElementById('sidebar-acc-type');
+  const offlineBox = document.getElementById('sidebar-offline-box');
+  const licenseBox = document.getElementById('sidebar-license-box');
+  const nickInput = document.getElementById('sidebar-nick-input');
+  const btnSaveNick = document.getElementById('btn-sidebar-save-nick');
+  const licenseLogin = document.getElementById('sidebar-license-login');
+  const licensePass = document.getElementById('sidebar-license-pass');
+  const btnLoginLicense = document.getElementById('btn-sidebar-login-license');
+  const displayName = document.getElementById('sidebar-display-name');
+  const accBadge = document.getElementById('sidebar-account-badge');
+  const authMsg = document.getElementById('sidebar-auth-msg');
+
+  if (currentConfig.avatarData && avatarImg) {
+    avatarImg.src = currentConfig.avatarData;
+  }
+
+  if (avatarContainer && avatarInput) {
+    avatarContainer.onclick = () => avatarInput.click();
+    avatarInput.onchange = (e) => {
+      const file = e.target.files?.[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = async (ev) => {
+          const b64 = ev.target?.result;
+          if (b64 && avatarImg) {
+            avatarImg.src = b64;
+            currentConfig.avatarData = b64;
+            await window.fenixAPI.saveConfig(currentConfig);
+            if (authMsg) authMsg.textContent = 'Аватарка обновлена!';
+          }
+        };
+        reader.readAsDataURL(file);
+      }
+    };
+  }
+
+  const isMojang = currentConfig.accountType === 'mojang';
+  if (accTypeSelect) {
+    accTypeSelect.value = isMojang ? 'mojang' : 'offline';
+    accTypeSelect.onchange = () => {
+      const val = accTypeSelect.value;
+      if (val === 'mojang') {
+        offlineBox?.classList.add('hidden');
+        licenseBox?.classList.remove('hidden');
+      } else {
+        offlineBox?.classList.remove('hidden');
+        licenseBox?.classList.add('hidden');
+      }
+    };
+  }
+
+  if (isMojang) {
+    offlineBox?.classList.add('hidden');
+    licenseBox?.classList.remove('hidden');
+    if (licenseLogin) licenseLogin.value = currentConfig.licenseLogin || '';
+  } else {
+    offlineBox?.classList.remove('hidden');
+    licenseBox?.classList.add('hidden');
+    if (nickInput) nickInput.value = currentConfig.username || '';
+  }
+
+  const updateLabels = () => {
+    if (displayName) {
+      displayName.textContent = currentConfig.username && currentConfig.username.trim() !== '' 
+        ? currentConfig.username 
+        : 'Новый игрок';
+    }
+    if (accBadge) {
+      accBadge.textContent = currentConfig.accountType === 'mojang' ? 'Лицензия' : 'Пиратка';
+    }
+    const cfgUser = document.getElementById('cfg-username');
+    if (cfgUser && currentConfig.username) cfgUser.value = currentConfig.username;
+  };
+  updateLabels();
+
+  if (btnSaveNick && nickInput) {
+    btnSaveNick.onclick = async () => {
+      const val = nickInput.value.trim();
+      if (!val) {
+        if (authMsg) authMsg.textContent = 'Введите никнейм!';
+        return;
+      }
+      currentConfig.username = val;
+      currentConfig.accountType = 'offline';
+      await window.fenixAPI.saveConfig(currentConfig);
+      updateLabels();
+      btnSaveNick.textContent = '✅ Сохранено!';
+      if (authMsg) authMsg.textContent = `Ник сохранен: ${val}`;
+      setTimeout(() => { btnSaveNick.textContent = 'Сохранить ник'; }, 2000);
+    };
+  }
+
+  if (btnLoginLicense && licenseLogin && licensePass) {
+    btnLoginLicense.onclick = async () => {
+      const login = licenseLogin.value.trim();
+      const pass = licensePass.value.trim();
+      if (!login || !pass) {
+        if (authMsg) authMsg.textContent = 'Введите логин и пароль!';
+        return;
+      }
+      btnLoginLicense.textContent = 'Подключение...';
+      if (authMsg) authMsg.textContent = 'Связь с серверами Mojang...';
+
+      const res = await window.fenixAPI.mojangAuth(login, pass);
+      if (res && res.success) {
+        currentConfig.username = res.username;
+        currentConfig.licenseLogin = login;
+        currentConfig.licenseToken = res.token;
+        currentConfig.licenseUuid = res.uuid;
+        currentConfig.accountType = 'mojang';
+        await window.fenixAPI.saveConfig(currentConfig);
+        updateLabels();
+        btnLoginLicense.textContent = '✅ Вход выполнен!';
+        if (authMsg) authMsg.textContent = `Успешно: ${res.username}`;
+        licensePass.value = '';
+        setTimeout(() => { btnLoginLicense.textContent = 'Войти (Mojang)'; }, 2000);
+      } else {
+        btnLoginLicense.textContent = 'Ошибка входа';
+        if (authMsg) authMsg.textContent = res.error || 'Ошибка входа';
+        setTimeout(() => { btnLoginLicense.textContent = 'Войти (Mojang)'; }, 3000);
+      }
+    };
+  }
+}
+
+(async () => {
+  await bindSettings();
+  renderShop();
+  await loadVkNews();
+  await refreshServers();
+  await updateTwitchStatus();
+  await checkForLauncherUpdates();
+  setupProfileBlock();
+  setInterval(updateTwitchStatus, 30000);
+  setInterval(refreshServers, 30000);
+})();
+
+
+// ==============================================================
+// ФИКС: МГНОВЕННЫЙ НИКНЕЙМ + ИЗОЛИРОВАННАЯ ВКЛАДКА TWITCH
+// ==============================================================
+(function() {
+  // 1. Мгновенное обновление ника при сохранении
+  document.addEventListener('click', function(e) {
+    const btn = e.target.closest('#btn-sidebar-save-nick');
+    if (!btn) return;
+    const input = document.getElementById('sidebar-nick-input');
+    if (!input) return;
+    const val = input.value.trim();
+    if (!val) return;
+
+    // Сразу же меняем все элементы с именем в сайдбаре
+    ['sidebar-username', 'sidebar-display-name', 'profile-username-display'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = val;
+    });
+
+    const box = input.closest('.glass-card') || input.parentElement.parentElement;
+    if (box) {
+      const boldName = box.querySelector('.font-bold.text-white');
+      if (boldName) boldName.textContent = val;
+    }
+  }, true);
+
+  // 2. Изолированное переключение вкладки Twitch
+  document.addEventListener('click', function(e) {
+    const twitchBtn = e.target.closest('button[data-tab="twitch"], #nav-twitch');
+    if (!twitchBtn) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    // Скрываем все другие main экраны
+    document.querySelectorAll('main').forEach(m => {
+      if (m.id !== 'tab-twitch-screen') {
+        m.classList.add('hidden');
+        m.style.display = 'none';
+      }
+    });
+
+    // Открываем только экран Twitch
+    const twScreen = document.getElementById('tab-twitch-screen');
+    if (twScreen) {
+      twScreen.classList.remove('hidden');
+      twScreen.style.display = 'flex';
+    }
+
+    // Подсвечиваем активную кнопку
+    document.querySelectorAll('aside nav button').forEach(b => {
+      b.classList.remove('bg-white/10', 'text-white', 'bg-emerald-500/20', 'text-emerald-400');
+      b.classList.add('text-slate-400');
+    });
+    twitchBtn.classList.remove('text-slate-400');
+    twitchBtn.classList.add('bg-white/10', 'text-white');
+  }, true);
+
+  // 3. Возврат на Главную при клике на Главную
+  document.addEventListener('click', function(e) {
+    const homeBtn = e.target.closest('button[data-tab="home"], #nav-home, button:has(span:contains("Главная"))');
+    if (!homeBtn) return;
+    const twScreen = document.getElementById('tab-twitch-screen');
+    if (twScreen) {
+      twScreen.classList.add('hidden');
+      twScreen.style.display = 'none';
+    }
+  }, true);
+})();
