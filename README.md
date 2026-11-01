@@ -111,8 +111,12 @@ launcher/
 └── README.md
 
 🤝 Сообщество и контакты
+
 Официальный сайт: fenixcraft.ru
+
 Сообщество ВКонтакте: vk.com/fenixcraft
+
 Twitch канал: twitch.tv/bloodrayt
+
 IP сервера для подключения: play.fenixcraft.ru:25565
 
