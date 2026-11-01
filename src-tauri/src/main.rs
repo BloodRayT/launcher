@@ -2042,7 +2042,6 @@ async fn check_launcher_update() -> serde_json::Value {
         "latestVersion": CURRENT_LAUNCHER_VERSION
     })
 }
-}
 
 #[tauri::command]
 async fn install_launcher_update(app: AppHandle, download_url: String) -> serde_json::Value {
