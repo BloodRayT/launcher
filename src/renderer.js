@@ -982,3 +982,19 @@ function setupProfileBlock() {
     }
   }, true);
 })();
+
+
+// Функция переключения плеера на VOD видеозапись
+window.loadTwitchVOD = function(url) {
+  const frame = document.getElementById('twitch-embed-frame');
+  const badge = document.getElementById('twitch-live-badge');
+  const desc = document.getElementById('twitch-status-desc');
+  if (frame) {
+    frame.src = url;
+    if (badge) {
+      badge.textContent = 'VOD ЗАПИСЬ';
+      badge.className = 'text-[10px] bg-slate-700 text-slate-200 font-black px-2 py-0.5 rounded uppercase';
+    }
+    if (desc) desc.textContent = 'Воспроизведение записи прошедшего стрима';
+  }
+};

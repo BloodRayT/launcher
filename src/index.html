@@ -56,7 +56,7 @@
   <header data-tauri-drag-region class="h-11 bg-[#060a0d] border-b border-white/5 flex items-center justify-between px-4 titlebar-drag shrink-0">
     <div class="flex items-center space-x-3 pointer-events-none">
       <img src="logo.png" alt="FenixCraft" class="w-7 h-7 rounded-full object-cover border border-emerald-500/40" />
-      <span class="font-bold text-white tracking-wide text-lg">FenixCraft <span id="app-version-badge" class="px-2 py-0.5 text-[11px] font-bold rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">v1.0.4</span>
+      <span class="font-bold text-white tracking-wide text-lg">FenixCraft <span id="app-version-badge" class="px-2 py-0.5 text-[11px] font-bold rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">v1.0.5</span>
       <button id="btn-update-launcher" class="hidden no-drag pointer-events-auto text-xs font-bold text-slate-950 bg-emerald-400 hover:bg-emerald-300 px-2.5 py-0.5 rounded-full ml-2 animate-bounce transition">
         ⬇ Обновить лаунчер
       </button></span>
@@ -424,28 +424,35 @@
     </aside>
   
     <!-- ВКЛАДКА TWITCH: СТРИМ И ПОСЛЕДНИЕ ЗАПИСИ (VOD) -->
+    
+    <!-- ИЗОЛИРОВАННАЯ ВКЛАДКА TWITCH -->
     <main id="tab-twitch-screen" class="flex-1 overflow-y-auto p-6 hidden flex-col space-y-4">
       <div class="flex items-center justify-between shrink-0">
         <div class="flex items-center space-x-3">
-          <div class="w-3.5 h-3.5 rounded-full bg-purple-500 animate-pulse"></div>
+          <div id="twitch-indicator-dot" class="w-3.5 h-3.5 rounded-full bg-purple-500 animate-pulse"></div>
           <div>
             <h2 class="text-lg font-extrabold text-white flex items-center space-x-2">
-              <span>Канал Twitch • BloodRayT</span>
-              <span id="twitch-live-indicator" class="text-[10px] bg-purple-500 text-white font-black px-2 py-0.5 rounded uppercase">LIVE</span>
+              <span>Стрим BloodRayT</span>
+              <span id="twitch-live-badge" class="text-[10px] bg-purple-500 text-white font-black px-2 py-0.5 rounded uppercase">LIVE</span>
             </h2>
-            <p class="text-xs text-slate-400">Прямая трансляция и записи прошедших стримов</p>
+            <p id="twitch-status-desc" class="text-xs text-slate-400">Прямая трансляция канала BloodRayT</p>
           </div>
         </div>
-        <a href="https://twitch.tv/bloodrayt" target="_blank" class="px-4 py-2 rounded-xl bg-purple-600/40 hover:bg-purple-600/60 border border-purple-500/50 text-purple-200 text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer">
-          <span>Открыть на Twitch.tv</span>
-          <span>↗</span>
-        </a>
+        <div class="flex items-center space-x-2">
+          <button id="btn-toggle-vod" class="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-xs text-white transition cursor-pointer">
+            📹 Последние записи
+          </button>
+          <a href="https://twitch.tv/bloodrayt" target="_blank" class="px-4 py-1.5 rounded-xl bg-purple-600/40 hover:bg-purple-600/60 border border-purple-500/50 text-purple-200 text-xs font-bold transition flex items-center space-x-1 cursor-pointer">
+            <span>Twitch.tv</span>
+            <span>↗</span>
+          </a>
+        </div>
       </div>
 
-      <!-- Контейнер плеера -->
-      <div class="w-full h-[420px] rounded-2xl overflow-hidden glass-card border border-purple-500/30 shadow-2xl relative bg-black flex items-center justify-center">
+      <!-- Контейнер медиаплеера -->
+      <div class="w-full h-[460px] rounded-2xl overflow-hidden glass-card border border-purple-500/30 shadow-2xl relative bg-black flex flex-col items-center justify-center" id="twitch-container-box">
         <iframe
-          id="twitch-native-frame"
+          id="twitch-embed-frame"
           src="https://player.twitch.tv/?channel=bloodrayt&parent=localhost&parent=127.0.0.1&autoplay=true&muted=false"
           class="w-full h-full border-0"
           allow="autoplay; fullscreen"
@@ -453,31 +460,34 @@
         </iframe>
       </div>
 
-      <!-- Блок последних записей трансляций -->
-      <div class="space-y-3 pt-2">
+      <!-- Витрина записей VOD (если стрим оффлайн или по кнопке) -->
+      <div id="twitch-vod-shelf" class="space-y-3 pt-2">
         <div class="flex items-center justify-between">
           <h3 class="text-sm font-bold text-white flex items-center space-x-2">
-            <span>📺 Недавние записи стримов</span>
-            <span class="text-xs text-purple-400 font-normal">(Hunt: Showdown 1896, RDR2)</span>
+            <span>📺 Последние трансляции и видеозаписи</span>
           </h3>
-          <a href="https://www.twitch.tv/bloodrayt/videos" target="_blank" class="text-xs text-purple-400 hover:underline">Все видеозаписи →</a>
+          <a href="https://www.twitch.tv/bloodrayt/videos" target="_blank" class="text-xs text-purple-400 hover:underline">Открыть полный архив →</a>
         </div>
         <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <a href="https://www.twitch.tv/bloodrayt/videos" target="_blank" class="p-3 rounded-xl glass-card border border-white/5 hover:border-purple-500/40 transition block group">
-            <div class="text-xs font-bold text-white group-hover:text-purple-300 transition">🔴 Ламповый эфир: Hunt: Showdown 1896</div>
-            <div class="text-[11px] text-slate-400 mt-1">Запись последней трансляции • Открыть запись</div>
-          </a>
-          <a href="https://www.twitch.tv/bloodrayt/videos" target="_blank" class="p-3 rounded-xl glass-card border border-white/5 hover:border-purple-500/40 transition block group">
-            <div class="text-xs font-bold text-white group-hover:text-purple-300 transition">💬 Чат-терапия и живое общение</div>
-            <div class="text-[11px] text-slate-400 mt-1">Архив стримов • Открыть на Twitch</div>
-          </a>
-          <a href="https://www.twitch.tv/bloodrayt/videos" target="_blank" class="p-3 rounded-xl glass-card border border-white/5 hover:border-purple-500/40 transition block group">
-            <div class="text-xs font-bold text-white group-hover:text-purple-300 transition">🎯 Очередная снайперская вылазка</div>
-            <div class="text-[11px] text-slate-400 mt-1">Лучшие моменты недели • Смотреть</div>
-          </a>
+          <div class="p-3.5 rounded-xl glass-card border border-white/5 hover:border-purple-500/40 transition cursor-pointer group" onclick="loadTwitchVOD('https://player.twitch.tv/?video=last&parent=localhost')">
+            <div class="text-xs font-bold text-white group-hover:text-purple-300 transition">🎮 Hunt: Showdown 1896</div>
+            <div class="text-[11px] text-slate-400 mt-1">Ламповый эфир, общение и катки</div>
+            <div class="mt-2 text-[10px] text-purple-400 font-semibold">▶ Запустить запись в плеере</div>
+          </div>
+          <div class="p-3.5 rounded-xl glass-card border border-white/5 hover:border-purple-500/40 transition cursor-pointer group" onclick="window.open('https://www.twitch.tv/bloodrayt/videos', '_blank')">
+            <div class="text-xs font-bold text-white group-hover:text-purple-300 transition">💬 Чат-терапия / Разговоры</div>
+            <div class="text-[11px] text-slate-400 mt-1">Ответы на вопросы и посиделки</div>
+            <div class="mt-2 text-[10px] text-purple-400 font-semibold">↗ Открыть запись на Twitch</div>
+          </div>
+          <div class="p-3.5 rounded-xl glass-card border border-white/5 hover:border-purple-500/40 transition cursor-pointer group" onclick="window.open('https://www.twitch.tv/bloodrayt/videos', '_blank')">
+            <div class="text-xs font-bold text-white group-hover:text-purple-300 transition">🤠 Red Dead Redemption 2</div>
+            <div class="text-[11px] text-slate-400 mt-1">Прохождение и приключения</div>
+            <div class="mt-2 text-[10px] text-purple-400 font-semibold">↗ Открыть запись на Twitch</div>
+          </div>
         </div>
       </div>
     </main>
+
 
     </div>
 
