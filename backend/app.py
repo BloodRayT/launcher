@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 import os
+import re
 import json
 import hashlib
 from urllib.parse import quote
@@ -18,8 +19,11 @@ app.add_middleware(
 STORAGE_DIR = os.path.join(os.path.dirname(__file__), "storage")
 SERVERS_FILE = os.path.join(os.path.dirname(__file__), "servers.json")
 BASE_PUBLIC_URL = os.getenv("BASE_PUBLIC_URL", "https://fenixcraft.ru/api/launcher")
+PROFILE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-][A-Za-z0-9._-]{0,63}$")
 
 os.makedirs(STORAGE_DIR, exist_ok=True)
+# Манифест отдаёт ссылки вида {BASE_PUBLIC_URL}/files/..., поэтому файлы доступны и по этому пути.
+app.mount("/api/launcher/files", StaticFiles(directory=STORAGE_DIR), name="launcher-files")
 app.mount("/files", StaticFiles(directory=STORAGE_DIR), name="files")
 
 def sha256_of_file(filepath: str) -> str:
@@ -31,7 +35,7 @@ def sha256_of_file(filepath: str) -> str:
 
 @app.get("/api/launcher/servers")
 def get_servers():
-    if os.path.exists(SERVERS_FILE):
+    if os.path.isfile(SERVERS_FILE):
         with open(SERVERS_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
     return [
@@ -48,7 +52,7 @@ def get_profile_manifest(profile: str):
     и отдает лаунчеру актуальный список файлов с SHA-256 контрольными суммами.
     """
     profile_dir = os.path.join(STORAGE_DIR, profile)
-    if not os.path.exists(profile_dir) or not os.path.isdir(profile_dir):
+    if not PROFILE_ID_PATTERN.fullmatch(profile) or not os.path.isdir(profile_dir):
         raise HTTPException(status_code=404, detail=f"Profile '{profile}' not found on backend")
 
     files_list = []
@@ -78,8 +82,8 @@ def get_profile_manifest(profile: str):
 
 @app.get("/api/launcher/version")
 def get_launcher_version():
-    """Укажите здесь новую версию (например 1.1), чтобы у всех игроков появилась кнопка автообновления."""
+    """Сейчас лаунчер получает обновления из GitHub Releases, этот адрес оставлен для старых версий."""
     return {
         "version": "1.0",
-        "url": "https://github.com/BloodRayT/launcher/releases/latest/download/FenixCraft_1.1.0_x64-setup.exe"
+        "url": "https://github.com/BloodRayT/launcher/releases/latest"
     }

@@ -44,6 +44,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libasound2-dev libssl-dev
 
+      - name: Install UI build tools
+        run: npm ci
+
+      - name: Check versions match the tag
+        run: npm run check:versions
+
       - name: Build and Release Tauri App
         uses: tauri-apps/tauri-action@v0
         env:
@@ -52,12 +58,7 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: 'FenixCraft Launcher ${{ github.ref_name }}'
           releaseBody: |
-            ## Что нового в ${{ github.ref_name }} 🦅
-            - 🎨 **Новый Hero-баннер:** Главный экран лаунчера теперь украшен официальным артом Minecraft Adventure (`baner.png`).
-            - 📺 **Встроенный плеер Twitch:** Клик по вкладке Twitch теперь открывает стрим канала `BloodRayT` прямо внутри лаунчера без браузера!
-            - ⚡ **Динамическая версия:** Версия автоматически синхронизируется во всем интерфейсе напрямую из ядра Rust.
-            - 👤 **Мгновенный отклик профиля:** Никнейм меняется синхронно при нажатии кнопки «Сохранить ник».
-            - 🛡️ **Надежная авторизация:** Стабильный шлюз лицензионного входа и сохранение сессии.
-          releaseDraft: false
+            Новая версия лаунчера FenixCraft. Описание изменений добавляется при публикации релиза.
+          releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}

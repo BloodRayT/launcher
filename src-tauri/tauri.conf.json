@@ -4,13 +4,15 @@
   "version": "1.0.13",
   "identifier": "ru.fenixcraft.launcher",
   "build": {
-    "frontendDist": "../src"
+    "frontendDist": "../src",
+    "beforeDevCommand": "npm run build:css",
+    "beforeBuildCommand": "npm run build:css"
   },
   "app": {
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "FenixCraft Launcher v1.0",
+        "title": "FenixCraft Launcher",
         "width": 1280,
         "height": 800,
         "minWidth": 1150,
@@ -21,7 +23,7 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https:; font-src 'self'; connect-src ipc: http://ipc.localhost; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
     }
   },
   "bundle": {

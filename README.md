@@ -3,7 +3,6 @@
   <h1>🦅 FenixCraft Launcher</h1>
   <p><b>Официальный кроссплатформенный лаунчер игрового проекта FenixCraft</b></p>
 
-  ![Version](https://img.shields.io/badge/version-1.0.1-emerald?style=for-the-badge)
   ![Tauri](https://img.shields.io/badge/Tauri_v2-24C8D5?style=for-the-badge&logo=tauri&logoColor=white)
   ![Rust](https://img.shields.io/badge/Rust-black?style=for-the-badge&logo=rust&logoColor=white)
   ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-blue?style=for-the-badge)
@@ -13,110 +12,95 @@
 
 ## 📌 О проекте
 
-**FenixCraft Launcher** — легковесный, производительный и безопасный лаунчер для Minecraft, разработанный на базе **Tauri v2** и **Rust**. Лаунчер обеспечивает быструю загрузку игровых клиентов, автоматическую установку среды выполнения Java, синхронизацию модификаций и прямое подключение к игровым серверам комплекса FenixCraft.
+**FenixCraft Launcher** — лаунчер Minecraft на **Tauri v2** и **Rust**. Он скачивает клиент и Java, синхронизирует файлы сборок с сервером проекта и запускает установленные сборки без интернета.
 
----
+## ✨ Возможности
 
-## ✨ Ключевые возможности
+* 🎮 **Сборки:** Vanilla, Fabric, Fabric + Iris и Sodium. NeoForge запускается, если он уже установлен; автоматическая установка появится в следующем обновлении.
+* 📴 **Работа без сети:** после первой полной загрузки сборка запускается без интернета. Если файлов не хватает, лаунчер объясняет, что нужно докачать. При недоступности сервера сборок используется последний сохранённый манифест, и файлы не удаляются.
+* 🔒 **Проверка файлов:** каждый скачанный файл сверяется по SHA-1 или SHA-256 и заменяет старый только после проверки. Пути из внешних данных не могут выйти за папку игры.
+* ☕ **Java:** подходящая Java находится на компьютере или скачивается с Adoptium с проверкой контрольной суммы.
+* 👤 **Профиль:** вход без пароля с ником или проверка аккаунта Ely.by. Запуск игры с сессией Ely.by пока не поддерживается: игра идёт в офлайн-режиме.
+* 🔄 **Обновления:** проверка через GitHub Releases; установщик скачивается только из релизов этого репозитория.
+* 🌐 **Сервисы проекта:** статус серверов, новости ВКонтакте с сохранением на случай отсутствия сети, индикатор стрима на Twitch, магазин.
+* 🛠️ **Диагностика:** консоль с выводом игры, полная проверка ресурсов, сохранение журнала, понятные сообщения об ошибках.
 
-* 🎮 **Поддержка актуальных сборок:**
-  * Vanilla (актуальные релизы Mojang с автоматической загрузкой ассетов).
-  * NeoForge 1.21.1 (FenixTech).
-  * Fabric + Iris & Sodium (FenixRPG с поддержкой шейдеров).
-  * Анархия / PvP (FenixArena).
-* ☕ **Встроенный Smart Java Manager:**
-  * Автоматическое сканирование установленных версий Java в системе.
-  * Фоновая загрузка и распаковка портативной среды **Adoptium Temurin OpenJDK (Java 21 / Java 25)** при её отсутствии.
-* ⚡ **Мгновенная синхронизация профиля:**
-  * Поддержка пиратского режима (Offline) со сменой никнейма в интерфейсе без перезапуска.
-  * Лицензионная авторизация через защищённый шлюз.
-  * Установка пользовательской аватарки прямо из лаунчера.
-* 🔄 **OTA Автообновление (Auto-Updater):**
-  * Проверка новых версий через GitHub Releases API при каждом запуске.
-  * Встроенное модальное окно со списком изменений (Changelog) и установкой в один клик.
-* 🌐 **Интеграция с сервисами проекта:**
-  * Мониторинг онлайна серверов FenixCraft в реальном времени через TCP-пинг.
-  * Живая лента новостей из официального сообщества ВКонтакте.
-  * Индикатор прямого эфира Twitch с динамической плашкой LIVE.
-  * Встроенный магазин привилегий и доната.
-* 🛠️ **Диагностика и логирование:**
-  * Встроенная консоль реального времени с перехватом потоков `stdout`/`stderr` JVM.
-  * Кнопка сохранения полного отчёта `fenixcraft-debug.log` и мгновенное открытие папки игры.
+## 🏗️ Стек
 
----
+* **Приложение:** Rust, Tauri v2
+* **Логика лаунчера:** крейт `fenix-core` без зависимости от Tauri, что позволяет тестировать её отдельно
+* **Интерфейс:** HTML, JavaScript (ES-модули), Tailwind CSS, собранный локально
+* **Бекенд:** Python, FastAPI
 
-## 🏗️ Стек технологий
+## 🚀 Разработка
 
-* **Ядро:** Rust 2021, Tauri v2
-* **Фронтенд:** HTML5, Modern JavaScript, Tailwind CSS (Glassmorphism UI)
-* **Сетевой стек:** `reqwest`, `tokio` (асинхронная многопоточная загрузка библиотек и ассетов)
-* **Криптография:** `sha2`, `uuid` (валидация файлов по контрольным суммам SHA-256)
-* **Архивация:** `zip`, `tar`
+Нужны [Rust](https://rustup.rs) и Node.js 20+. На Linux дополнительно:
 
----
+```bash
+sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libasound2-dev libssl-dev
+```
 
-## 🚀 Сборка из исходного кода
-
-### Предварительные требования
-
-1. **Rust:** Установленный компилятор Rust (`rustup`):
-   ```bash
-   curl --proto '=https' --tlsv1.2 -sSf [https://sh.rustup.rs](https://sh.rustup.rs) | sh
-
-
-Node.js: Версия 18+ и пакетный менеджер npm.
-
-Системные зависимости (только для Linux):
-sudo apt-get update && sudo apt-get install -y \
-  libwebkit2gtk-4.1-dev \
-  libappindicator3-dev \
-  librsvg2-dev \
-  patchelf \
-  libasound2-dev \
-  libssl-dev
-
-Установка Tauri CLI и запуск dev-режима
-# Клонирование репозитория
-git clone [https://github.com/BloodRayT/launcher.git](https://github.com/BloodRayT/launcher.git)
+```bash
+git clone https://github.com/BloodRayT/launcher.git
 cd launcher
+npm ci
+```
 
-# Установка Tauri v2 CLI глобально
-npm install -g @tauri-apps/cli@v2
+```bash
+npm run tauri dev
+```
 
-# Проверка окружения
-cargo check --manifest-path src-tauri/Cargo.toml
+Сборка установщиков под текущую ОС:
 
-# Запуск в режиме разработки
-tauri dev
+```bash
+npm run tauri build
+```
 
-Сборка релизного пакета
-# Сборка бинарников и установщиков под текущую ОС (.exe, .deb, .dmg)
-tauri build
+### Проверки
 
-📂 Структура репозитория
+Те же проверки выполняет CI на каждый pull request.
+
+```bash
+npm test
+npm run check:versions
+```
+
+```bash
+cd src-tauri && cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test -p fenix-core
+```
+
+```bash
+cd backend && pip install -r requirements-dev.txt && python -m pytest tests
+```
+
+Проверка на настоящих серверах Mojang с запуском игры. Она откроет окно Minecraft:
+
+```bash
+cd src-tauri && cargo run -p fenix-core --example smoke_launch -- /путь/к/пустой/папке latest-vanilla 45
+```
+
+### Выпуск версии
+
+Версия указывается в `package.json`, `src-tauri/Cargo.toml` и `src-tauri/tauri.conf.json` и должна совпадать с git-тегом `vX.Y.Z`. Иначе сборка релиза остановится. Релиз создаётся черновиком, чтобы перед публикацией можно было дописать описание изменений.
+
+## 📂 Структура
+
+```text
 launcher/
-├── .github/
-│   └── workflows/
-│       └── release.yml        # CI/CD пайплайн сборки мультплатформенных релизов
-├── src/
-│   ├── index.html             # Главный интерфейс лаунчера
-│   ├── renderer.js            # Логика UI, событий и взаимодействия с Tauri API
-│   ├── baner.png              # Главный hero-баннер
-│   └── logo.png               # Логотип проекта
+├── .github/workflows/      # CI и сборка релизов
+├── backend/                # Сервер сборок (FastAPI), файлы сборок в storage/
+├── scripts/                # Проверка совпадения версий
+├── src/                    # Интерфейс
 ├── src-tauri/
-│   ├── src/
-│   │   └── main.rs            # Ядро лаунчера (JVM launcher, Java installer, auth, assets audit)
-│   ├── Cargo.toml             # Зависимости Rust и настройки пакета
-│   └── tauri.conf.json        # Конфигурация окна, бандлера и безопасности Tauri
-└── README.md
+│   ├── core/               # fenix-core: скачивание, проверка, запуск игры и тесты
+│   ├── src/                # Команды Tauri, новости, статус серверов
+│   └── tauri.conf.json     # Окно, CSP, сборка
+└── tests/                  # Тесты интерфейса
+```
 
-🤝 Сообщество и контакты
+## 🤝 Сообщество и контакты
 
-Официальный сайт: fenixcraft.ru
-
-Сообщество ВКонтакте: vk.com/fenixcraft
-
-Twitch канал: twitch.tv/bloodrayt
-
-IP сервера для подключения: play.fenixcraft.ru:25565
-
+* Официальный сайт: [fenixcraft.ru](https://fenixcraft.ru)
+* Сообщество ВКонтакте: [vk.ru/fenixcraft](https://vk.ru/fenixcraft)
+* Twitch: [twitch.tv/bloodrayt](https://www.twitch.tv/bloodrayt)
+* IP сервера: `play.fenixcraft.ru:25565`
