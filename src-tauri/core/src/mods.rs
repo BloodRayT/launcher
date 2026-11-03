@@ -78,10 +78,11 @@ async fn install_mod(
 /// Подходит только точная версия игры: мод для другой версии привёл бы к вылету.
 pub async fn ensure_shader_mods(
     ctx: &LaunchContext,
+    game_dir: &Path,
     minecraft: &str,
     loader: &str,
 ) -> Result<(), LauncherError> {
-    let mods_dir = ctx.root.join("mods");
+    let mods_dir = game_dir.join("mods");
     std::fs::create_dir_all(&mods_dir)?;
     let mut slugs = vec!["sodium", "iris"];
     if loader == "fabric" {

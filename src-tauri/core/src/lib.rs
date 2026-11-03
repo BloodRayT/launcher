@@ -6,10 +6,12 @@ pub mod backend_sync;
 pub mod config;
 pub mod download;
 pub mod errors;
+pub mod instances;
 pub mod java;
 pub mod launch;
 pub mod libraries;
 pub mod mods;
+pub mod neoforge;
 pub mod network;
 pub mod reporter;
 pub mod safety;
@@ -24,6 +26,7 @@ pub struct Endpoints {
     pub fabric_meta: String,
     pub modrinth: String,
     pub adoptium: String,
+    pub neoforge_mavens: Vec<String>,
 }
 
 impl Default for Endpoints {
@@ -35,6 +38,10 @@ impl Default for Endpoints {
             fabric_meta: "https://meta.fabricmc.net/v2".to_string(),
             modrinth: "https://api.modrinth.com/v2".to_string(),
             adoptium: "https://api.adoptium.net/v3".to_string(),
+            neoforge_mavens: vec![
+                "https://maven.neoforged.net/releases".to_string(),
+                "https://maven.creeperhost.net".to_string(),
+            ],
         }
     }
 }
