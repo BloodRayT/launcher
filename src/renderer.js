@@ -912,3 +912,35 @@ function setupProfileBlock() {
   setInterval(updateTwitchStatus, 30000);
   setInterval(refreshServers, 30000);
 })();
+
+
+// Автоматическая синхронизация версии из бинарника Tauri
+async function syncInstalledVersion() {
+  try {
+    const tCore = window.__TAURI__ ? (window.__TAURI__.core || window.__TAURI__.tauri) : null;
+    if (tCore && tCore.invoke) {
+      const v = await tCore.invoke('get_launcher_version');
+      if (v) {
+        const badge = document.getElementById('app-version-badge');
+        if (badge) badge.textContent = `v${v}`;
+      }
+    }
+  } catch(e) {}
+}
+
+// Отслеживание онлайн статуса Twitch для бейджа LIVE
+async function checkTwitchLive() {
+  try {
+    const img = new Image();
+    img.src = 'https://static-cdn.jtvnw.net/previews-ttv/live_user_bloodrayt-320x180.jpg?' + Date.now();
+    img.onload = () => {
+      const pill = document.querySelector('button[data-tab="twitch"] span:last-child, #twitch-status-pill');
+      if (pill) pill.classList.remove('hidden');
+    };
+  } catch(e) {}
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  syncInstalledVersion();
+  checkTwitchLive();
+});

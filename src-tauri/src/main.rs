@@ -1,3 +1,8 @@
+
+#[tauri::command]
+fn get_launcher_version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
+}
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use serde::{Deserialize, Serialize};
@@ -1994,7 +1999,7 @@ fn spawn_and_stream_jvm(app: &AppHandle, java_bin: &str, args: &[String], work_d
     }
 }
 
-const CURRENT_LAUNCHER_VERSION: &str = "1.0.10";
+const CURRENT_LAUNCHER_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[tauri::command]
 async fn check_launcher_update() -> serde_json::Value {
