@@ -26,6 +26,8 @@ use std::time::SystemTime;
 const LIBRARY_CONCURRENCY: usize = 8;
 const INITIAL_HEAP_MB: u32 = 2048;
 const LAUNCHER_BRAND: &str = "FenixCraft";
+const FABRIC_FETCH_ATTEMPTS: u32 = 3;
+const FABRIC_RETRY_DELAY: std::time::Duration = std::time::Duration::from_millis(300);
 const OFFLINE_ACCESS_TOKEN: &str =
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJQbGF5ZXIiLCJuYW1lIjoiUGxheWVyIn0.signature";
 const HEAP_DUMP_FLAG: &str =
@@ -201,64 +203,109 @@ async fn prepare_vanilla(
     })
 }
 
+enum FabricFetchError {
+    Unreachable,
+    Server(String),
+}
+
+async fn fetch_fabric_json_once(ctx: &LaunchContext, url: &str) -> Result<Value, FabricFetchError> {
+    let response = ctx.client.get(url).send().await.map_err(|error| {
+        if error.is_connect() || error.is_timeout() {
+            FabricFetchError::Unreachable
+        } else {
+            FabricFetchError::Server(error.to_string())
+        }
+    })?;
+    if !response.status().is_success() {
+        return Err(FabricFetchError::Server(format!(
+            "сервер ответил {}",
+            response.status().as_u16()
+        )));
+    }
+    response
+        .json()
+        .await
+        .map_err(|error| FabricFetchError::Server(error.to_string()))
+}
+
+async fn fetch_fabric_json(ctx: &LaunchContext, url: &str) -> Result<Value, FabricFetchError> {
+    let mut attempt = 1;
+    loop {
+        match fetch_fabric_json_once(ctx, url).await {
+            Ok(json) => return Ok(json),
+            Err(error) if attempt >= FABRIC_FETCH_ATTEMPTS => return Err(error),
+            Err(_) => {
+                tokio::time::sleep(FABRIC_RETRY_DELAY).await;
+                attempt += 1;
+            }
+        }
+    }
+}
+
+async fn fetch_fabric_profile(
+    ctx: &LaunchContext,
+    minecraft: &str,
+) -> Result<Value, FabricFetchError> {
+    let base = ctx.endpoints.fabric_meta.trim_end_matches('/');
+    let loaders =
+        fetch_fabric_json(ctx, &format!("{base}/versions/loader/{minecraft}?limit=1")).await?;
+    let loader = loaders
+        .as_array()
+        .and_then(|list| list.first())
+        .and_then(|entry| entry["loader"]["version"].as_str())
+        .ok_or_else(|| {
+            FabricFetchError::Server(format!("нет загрузчика для Minecraft {minecraft}"))
+        })?;
+    fetch_fabric_json(
+        ctx,
+        &format!("{base}/versions/loader/{minecraft}/{loader}/profile/json"),
+    )
+    .await
+}
+
 async fn load_fabric_profile(ctx: &LaunchContext, minecraft: &str) -> Result<Value, LauncherError> {
     let cache = ctx
         .root
         .join("versions")
         .join("fabric-cache")
         .join(format!("{minecraft}.json"));
-    let base = ctx.endpoints.fabric_meta.trim_end_matches('/');
-
-    let fresh: Option<Value> = async {
-        let loaders: Value = ctx
-            .probe_client
-            .get(format!("{base}/versions/loader/{minecraft}"))
-            .send()
-            .await
-            .ok()?
-            .error_for_status()
-            .ok()?
-            .json()
-            .await
-            .ok()?;
-        let loader = loaders.as_array()?.first()?["loader"]["version"]
-            .as_str()?
-            .to_string();
-        ctx.probe_client
-            .get(format!(
-                "{base}/versions/loader/{minecraft}/{loader}/profile/json"
-            ))
-            .send()
-            .await
-            .ok()?
-            .error_for_status()
-            .ok()?
-            .json()
-            .await
-            .ok()
-    }
-    .await;
-
-    if let Some(profile) = fresh {
-        if let Ok(json) = serde_json::to_vec_pretty(&profile) {
-            let _ = write_atomic(&cache, &json);
+    let failure = match fetch_fabric_profile(ctx, minecraft).await {
+        Ok(profile) => {
+            if let Ok(json) = serde_json::to_vec_pretty(&profile) {
+                let _ = write_atomic(&cache, &json);
+            }
+            return Ok(profile);
         }
-        return Ok(profile);
-    }
-    std::fs::read(&cache)
+        Err(failure) => failure,
+    };
+    if let Some(profile) = std::fs::read(&cache)
         .ok()
         .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-        .ok_or_else(|| LauncherError::NeedsInternet {
+    {
+        return Ok(profile);
+    }
+    Err(match failure {
+        FabricFetchError::Unreachable => LauncherError::NeedsInternet {
             what: format!("загрузчик Fabric для {minecraft}"),
-        })
+        },
+        FabricFetchError::Server(reason) => LauncherError::Download {
+            file: format!("загрузчик Fabric для {minecraft}"),
+            reason,
+        },
+    })
 }
 
-/// Добавляет Fabric к ванильному класспасу и возвращает его главный класс.
+struct FabricReady {
+    main_class: String,
+    jvm_args: Vec<String>,
+}
+
+/// Добавляет Fabric к ванильному класспасу и возвращает его главный класс и аргументы JVM.
 async fn prepare_fabric(
     ctx: &LaunchContext,
     minecraft: &str,
     classpath: &mut Vec<PathBuf>,
-) -> Result<String, LauncherError> {
+) -> Result<FabricReady, LauncherError> {
     let profile = load_fabric_profile(ctx, minecraft).await?;
     let mut libraries = LibrarySet::seeded(classpath);
     libraries.collect(&profile, &ctx.root.join("libraries"), current_os());
@@ -272,10 +319,23 @@ async fn prepare_fabric(
     )
     .await?;
     classpath.append(&mut libraries.classpath);
-    profile["mainClass"]
+    let main_class = profile["mainClass"]
         .as_str()
         .map(str::to_string)
-        .ok_or_else(|| LauncherError::BadData("у профиля Fabric нет главного класса".to_string()))
+        .ok_or_else(|| {
+            LauncherError::BadData("у профиля Fabric нет главного класса".to_string())
+        })?;
+    let jvm_args = profile["arguments"]["jvm"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(str::to_string)
+        .collect();
+    Ok(FabricReady {
+        main_class,
+        jvm_args,
+    })
 }
 
 fn offline_uuid(username: &str) -> String {
@@ -565,8 +625,11 @@ async fn plan_vanilla_or_fabric(
         .as_str()
         .unwrap_or("net.minecraft.client.main.Main")
         .to_string();
+    let mut fabric_jvm_args = Vec::new();
     if loader_of(profile) == Loader::Fabric {
-        main_class = prepare_fabric(ctx, &vanilla.version, &mut vanilla.classpath).await?;
+        let fabric = prepare_fabric(ctx, &vanilla.version, &mut vanilla.classpath).await?;
+        main_class = fabric.main_class;
+        fabric_jvm_args = fabric.jvm_args;
         if wants_shaders(profile) {
             ensure_shader_mods(ctx, game_dir, &vanilla.version, "fabric").await?;
         }
@@ -589,6 +652,7 @@ async fn plan_vanilla_or_fabric(
     if major >= 25 {
         args.push("--sun-misc-unsafe-memory-access=allow".to_string());
     }
+    args.extend(fabric_jvm_args);
     args.extend(custom_jvm_args(config));
     args.push(main_class);
     args.extend(game_args(

@@ -21,7 +21,7 @@ const SAVE_DEBOUNCE_MS = 300;
 const MAX_CONSOLE_LINES = 5000;
 const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
 const AVATAR_SIZE = 128;
-const VALID_PROFILES = ['latest-vanilla', '1.21.11-vanilla', '1.21.1-neoforge', '1.21.11-fabric', '1.21.11-iris', '1.21.1-iris-neoforge', '1.21.11-iris-fabric'];
+const VALID_PROFILES = ['26.3-vanilla', '26.3-iris', '1.21.1-neoforge', '1.21.1-iris-neoforge'];
 const TABS = ['home', 'shop', 'servers', 'settings', 'faq', 'console'];
 
 /** Вне приложения (проверка верстки в браузере) вызовы заменяются заглушками. */
@@ -29,7 +29,7 @@ const previewResponses = {
   get_config: () => ({
     username: 'Preview_Player', accountType: 'offline', ram: 6144, width: 1280, height: 720,
     javaPath: '', jvmArgs: '-XX:+UseG1GC', showConsole: false, debugMode: false,
-    selectedVersion: 'latest-vanilla', selectedServer: 'play.fenixcraft.ru',
+    selectedVersion: '26.3-vanilla', selectedServer: 'play.fenixcraft.ru',
     customServers: [], avatarData: '', msUsername: '', msUuid: '',
   }),
   get_launcher_version: () => 'dev',
@@ -48,10 +48,8 @@ function invoke(command, args) {
 }
 
 const SERVER_DEFAULTS = [
-  { id: 'fenix-main', name: 'FenixCraft', desc: 'Выживание • Vanilla/Mods', ip: 'play.fenixcraft.ru', port: 25565, icon: '🦅', maxDefault: 1000 },
+  { id: 'fenix-main', name: 'FenixCraft', desc: 'Vanilla • 26.3', ip: 'play.fenixcraft.ru', port: 25565, icon: '🦅', maxDefault: 1000 },
   { id: 'fenix-mods', name: 'FenixTech', desc: 'NeoForge • 1.21.1', ip: 'tech.fenixcraft.ru', port: 25565, icon: '⚙️', maxDefault: 500 },
-  { id: 'fenix-rpg', name: 'FenixRPG', desc: 'Fabric + Iris • 1.21.11', ip: 'rpg.fenixcraft.ru', port: 25565, icon: '⚔️', maxDefault: 500 },
-  { id: 'fenix-pvp', name: 'FenixArena', desc: 'Анархия • 1.21.11', ip: 'pvp.fenixcraft.ru', port: 25565, icon: '⭐', maxDefault: 300 },
 ];
 
 const SHOP_ITEMS = [
@@ -321,7 +319,7 @@ function bindSettings() {
   fields.args.value = currentConfig.jvmArgs;
   fields.console.checked = currentConfig.showConsole;
   fields.debug.checked = currentConfig.debugMode;
-  fields.version.value = VALID_PROFILES.includes(currentConfig.selectedVersion) ? currentConfig.selectedVersion : 'latest-vanilla';
+  fields.version.value = VALID_PROFILES.includes(currentConfig.selectedVersion) ? currentConfig.selectedVersion : VALID_PROFILES[0];
 
   const selectedProfileName = () => fields.version.options[fields.version.selectedIndex]?.text || 'Vanilla';
   byId('last-launch-ver').textContent = selectedProfileName();

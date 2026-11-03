@@ -34,7 +34,7 @@ fn console_reporter() -> Reporter {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args().skip(1);
     let root = PathBuf::from(args.next().ok_or("укажите папку")?);
-    let profile = args.next().unwrap_or_else(|| "latest-vanilla".to_string());
+    let profile = args.next().unwrap_or_else(|| "26.3-vanilla".to_string());
     let seconds: u64 = args.next().map_or(Ok(45), |value| value.parse())?;
     std::fs::create_dir_all(&root)?;
 

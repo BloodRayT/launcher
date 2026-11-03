@@ -7,6 +7,17 @@ const DEFAULT_BACKEND_URL: &str = "http://fenixcraft.ru/api/launcher";
 /// Адрес из прежних версий: сайт пока работает только по HTTP.
 const OLD_BACKEND_URL: &str = "https://fenixcraft.ru/api/launcher";
 const DEFAULT_JVM_ARGS: &str = "-XX:+UnlockExperimentalVMOptions -XX:+UseG1GC -XX:G1NewSizePercent=20 -XX:G1ReservePercent=20 -XX:MaxGCPauseMillis=50 -XX:G1HeapRegionSize=32M";
+/// Сборки лаунчера. Версии совпадают с серверами: Purpur 26.3 и NeoForge 1.21.1.
+pub const PROFILES: [&str; 4] = [
+    "26.3-vanilla",
+    "26.3-iris",
+    "1.21.1-neoforge",
+    "1.21.1-iris-neoforge",
+];
+const DEFAULT_PROFILE: &str = PROFILES[0];
+/// Серверы из прежних версий, которых больше нет.
+const REMOVED_SERVER_IDS: [&str; 2] = ["fenix-rpg", "fenix-pvp"];
+const REMOVED_SERVER_ADDRESSES: [&str; 2] = ["rpg.fenixcraft.ru", "pvp.fenixcraft.ru"];
 const MIN_RAM_MB: u32 = 1024;
 const MAX_RAM_MB: u32 = 65536;
 const MIN_WINDOW_SIZE: u32 = 320;
@@ -40,7 +51,7 @@ pub fn default_servers() -> Vec<ServerConfigItem> {
         server(
             "fenix-main",
             "FenixCraft",
-            "Выживание • Vanilla/Mods",
+            "Vanilla • 26.3",
             "play.fenixcraft.ru",
             "🦅",
             1000,
@@ -53,23 +64,28 @@ pub fn default_servers() -> Vec<ServerConfigItem> {
             "⚙️",
             500,
         ),
-        server(
-            "fenix-rpg",
-            "FenixRPG",
-            "Fabric + Iris • 1.21.11",
-            "rpg.fenixcraft.ru",
-            "⚔️",
-            500,
-        ),
-        server(
-            "fenix-pvp",
-            "FenixArena",
-            "Анархия • 1.21.11",
-            "pvp.fenixcraft.ru",
-            "⭐",
-            300,
-        ),
     ]
+}
+
+/// Встроенные серверы заменяются актуальными, а серверы, добавленные игроком, остаются.
+fn migrated_servers(saved: Vec<ServerConfigItem>) -> Vec<ServerConfigItem> {
+    let defaults = default_servers();
+    let migrated: Vec<ServerConfigItem> = saved
+        .into_iter()
+        .filter(|item| !REMOVED_SERVER_IDS.contains(&item.id.as_str()))
+        .map(|item| {
+            defaults
+                .iter()
+                .find(|known| known.id == item.id)
+                .cloned()
+                .unwrap_or(item)
+        })
+        .collect();
+    if migrated.is_empty() {
+        defaults
+    } else {
+        migrated
+    }
 }
 
 fn default_account_type() -> String {
@@ -88,7 +104,7 @@ fn default_jvm_args() -> String {
     DEFAULT_JVM_ARGS.to_string()
 }
 fn default_selected_version() -> String {
-    "latest-vanilla".to_string()
+    DEFAULT_PROFILE.to_string()
 }
 fn default_selected_server() -> String {
     "play.fenixcraft.ru".to_string()
@@ -177,10 +193,16 @@ impl LauncherConfig {
             } else {
                 self.backend_url
             },
-            custom_servers: if self.custom_servers.is_empty() {
-                default_servers()
+            custom_servers: migrated_servers(self.custom_servers),
+            selected_version: if PROFILES.contains(&self.selected_version.as_str()) {
+                self.selected_version
             } else {
-                self.custom_servers
+                default_selected_version()
+            },
+            selected_server: if REMOVED_SERVER_ADDRESSES.contains(&self.selected_server.as_str()) {
+                default_selected_server()
+            } else {
+                self.selected_server
             },
             ..self
         }
@@ -330,6 +352,55 @@ mod tests {
 
         assert_eq!(old.backend_url, DEFAULT_BACKEND_URL);
         assert_eq!(custom.backend_url, "https://my.backend/api");
+    }
+
+    #[test]
+    fn old_profiles_and_servers_are_migrated() {
+        let mine = ServerConfigItem {
+            id: "srv-1".to_string(),
+            name: "Мой".to_string(),
+            desc: String::new(),
+            ip: "my.server.test".to_string(),
+            port: 25565,
+            icon: String::new(),
+            max_default: 10,
+        };
+        let old_entry = |id: &str, desc: &str| ServerConfigItem {
+            id: id.to_string(),
+            desc: desc.to_string(),
+            ..mine.clone()
+        };
+        let config = LauncherConfig {
+            selected_version: "latest-vanilla".to_string(),
+            selected_server: "rpg.fenixcraft.ru".to_string(),
+            custom_servers: vec![
+                old_entry("fenix-main", "Выживание • Vanilla/Mods"),
+                old_entry("fenix-rpg", "Fabric + Iris • 1.21.11"),
+                old_entry("fenix-pvp", "Анархия • 1.21.11"),
+                mine.clone(),
+            ],
+            ..LauncherConfig::default()
+        }
+        .normalized();
+
+        assert_eq!(config.selected_version, "26.3-vanilla");
+        assert_eq!(config.selected_server, "play.fenixcraft.ru");
+        assert_eq!(config.custom_servers.len(), 2);
+        assert_eq!(config.custom_servers[0].desc, "Vanilla • 26.3");
+        assert_eq!(config.custom_servers[1], mine);
+    }
+
+    #[test]
+    fn current_profile_and_custom_server_are_kept() {
+        let config = LauncherConfig {
+            selected_version: "1.21.1-iris-neoforge".to_string(),
+            selected_server: "my.server.test".to_string(),
+            ..LauncherConfig::default()
+        }
+        .normalized();
+
+        assert_eq!(config.selected_version, "1.21.1-iris-neoforge");
+        assert_eq!(config.selected_server, "my.server.test");
     }
 
     #[test]
