@@ -6,7 +6,18 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - BASE_PUBLIC_URL=https://fenixcraft.ru/api/launcher
+      - BASE_PUBLIC_URL=${BASE_PUBLIC_URL:-https://fenixcraft.ru/api/launcher}
+      - MANIFEST_SIGNING_KEY=${MANIFEST_SIGNING_KEY:-}
+      - REQUIRE_MANIFEST_SIGNING=${REQUIRE_MANIFEST_SIGNING:-true}
+      - VK_TOKEN=${VK_TOKEN:-}
+      - TWITCH_CLIENT_ID=${TWITCH_CLIENT_ID:-}
+      - TWITCH_CLIENT_SECRET=${TWITCH_CLIENT_SECRET:-}
+      - TWITCH_CHANNEL=${TWITCH_CHANNEL:-bloodrayt}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/launcher/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     volumes:
       - ./storage:/app/storage
       - ./servers.json:/app/servers.json

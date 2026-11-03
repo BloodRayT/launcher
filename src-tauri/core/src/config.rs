@@ -121,8 +121,6 @@ pub struct LauncherConfig {
     pub selected_version: String,
     #[serde(default = "default_selected_server")]
     pub selected_server: String,
-    #[serde(default)]
-    pub vk_token: String,
     #[serde(default = "default_backend_url")]
     pub backend_url: String,
     #[serde(default = "default_servers")]
@@ -151,7 +149,6 @@ impl Default for LauncherConfig {
             debug_mode: false,
             selected_version: default_selected_version(),
             selected_server: default_selected_server(),
-            vk_token: String::new(),
             backend_url: default_backend_url(),
             custom_servers: default_servers(),
             avatar_data: String::new(),

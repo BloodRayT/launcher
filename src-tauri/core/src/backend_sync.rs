@@ -1,15 +1,20 @@
-use crate::download::{ensure_files, sha256_file, write_atomic, DownloadItem, Expected};
+use crate::download::{
+    ensure_files, read_limited, sha256_file, write_atomic, DownloadItem, Expected,
+};
 use crate::errors::LauncherError;
 use crate::instances::instance_dir;
 use crate::launch::LaunchContext;
 use crate::reporter::Reporter;
 use crate::safety::{is_sha256_hex, safe_join};
+use crate::signing::verify_signature;
 use reqwest::{StatusCode, Url};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::path::Path;
 
 const SYNC_CONCURRENCY: usize = 6;
+const SIGNATURE_HEADER: &str = "x-manifest-signature";
+const MAX_MANIFEST_BYTES: usize = 5 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ManifestFile {
@@ -142,8 +147,53 @@ fn remove_foreign_mods(root: &Path, manifest: &Manifest, reporter: &Reporter) {
     }
 }
 
+/// Если в лаунчере задан ключ, без верной подписи манифест не принимается.
+fn check_signature(
+    ctx: &LaunchContext,
+    body: &[u8],
+    signature: Option<&str>,
+) -> Result<(), LauncherError> {
+    let Some(public_key) = &ctx.manifest_public_key else {
+        return Ok(());
+    };
+    let signature =
+        signature.ok_or_else(|| LauncherError::BadManifest("нет подписи сервера".to_string()))?;
+    verify_signature(public_key, body, signature)
+}
+
+/// Подпись доказывает только происхождение, поэтому манифест должен быть именно от этой сборки.
+/// Иначе подписанный манифест другой сборки можно было бы выдать за нужный.
+fn check_profile(manifest: &Manifest, profile: &str) -> Result<(), LauncherError> {
+    if manifest.profile == profile {
+        Ok(())
+    } else {
+        Err(LauncherError::BadManifest(format!(
+            "манифест относится к другой сборке «{}»",
+            manifest.profile
+        )))
+    }
+}
+
+fn load_cached_manifest(
+    ctx: &LaunchContext,
+    profile: &str,
+    cache: &Path,
+    signature_cache: &Path,
+) -> Option<Manifest> {
+    let body = std::fs::read(cache).ok()?;
+    let signature = std::fs::read_to_string(signature_cache).ok();
+    check_signature(ctx, &body, signature.as_deref()).ok()?;
+    let manifest: Manifest = serde_json::from_slice(&body).ok()?;
+    check_profile(&manifest, profile).ok()?;
+    Some(manifest)
+}
+
 enum Fetched {
-    Manifest(Manifest),
+    Manifest {
+        manifest: Manifest,
+        body: Vec<u8>,
+        signature: Option<String>,
+    },
     NoProfile,
     Unreachable(String),
 }
@@ -159,8 +209,22 @@ async fn fetch_manifest(ctx: &LaunchContext, url: &str) -> Fetched {
     if !response.status().is_success() {
         return Fetched::Unreachable(format!("сервер ответил {}", response.status().as_u16()));
     }
-    match response.json::<Manifest>().await {
-        Ok(manifest) => Fetched::Manifest(manifest),
+    let signature = response
+        .headers()
+        .get(SIGNATURE_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string);
+    let body = match read_limited(response, MAX_MANIFEST_BYTES).await {
+        Ok(body) => body,
+        Err(reason) => return Fetched::Unreachable(reason),
+    };
+    // Ответ не в формате манифеста (например, страница провайдера) считается недоступностью.
+    match serde_json::from_slice::<Manifest>(&body) {
+        Ok(manifest) => Fetched::Manifest {
+            manifest,
+            body,
+            signature,
+        },
         Err(err) => Fetched::Unreachable(format!("неверный ответ: {err}")),
     }
 }
@@ -179,14 +243,20 @@ pub async fn sync_profile(
         .join("profiles")
         .join(profile)
         .join("manifest.json");
+    let signature_cache = cache.with_extension("sig");
     let url = format!("{base}/manifest/{profile}");
 
     let (manifest, fresh) = match fetch_manifest(ctx, &url).await {
-        Fetched::Manifest(manifest) => {
+        Fetched::Manifest {
+            manifest,
+            body,
+            signature,
+        } => {
+            check_signature(ctx, &body, signature.as_deref())?;
+            check_profile(&manifest, profile)?;
             validate_manifest(&manifest, &game_dir)?;
-            if let Ok(json) = serde_json::to_vec_pretty(&manifest) {
-                let _ = write_atomic(&cache, &json);
-            }
+            let _ = write_atomic(&cache, &body);
+            let _ = write_atomic(&signature_cache, signature.unwrap_or_default().as_bytes());
             (manifest, true)
         }
         Fetched::NoProfile => {
@@ -198,10 +268,8 @@ pub async fn sync_profile(
         Fetched::Unreachable(reason) => {
             ctx.reporter
                 .log(format!("[Сборка] Сервер сборки недоступен ({reason})."));
-            let cached = std::fs::read(&cache)
-                .ok()
-                .and_then(|bytes| serde_json::from_slice::<Manifest>(&bytes).ok());
-            let Some(manifest) = cached else {
+            let Some(manifest) = load_cached_manifest(ctx, profile, &cache, &signature_cache)
+            else {
                 return Ok(SyncOutcome::Unavailable);
             };
             validate_manifest(&manifest, &game_dir)?;
@@ -242,6 +310,17 @@ mod tests {
             size: 1,
             url: "https://x/f".to_string(),
         }
+    }
+
+    #[test]
+    fn manifest_of_another_profile_is_rejected() {
+        let other = manifest(Vec::new());
+
+        assert!(check_profile(&other, "p").is_ok());
+        assert!(matches!(
+            check_profile(&other, "another"),
+            Err(LauncherError::BadManifest(_))
+        ));
     }
 
     fn manifest(files: Vec<ManifestFile>) -> Manifest {

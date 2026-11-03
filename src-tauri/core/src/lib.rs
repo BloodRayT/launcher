@@ -15,6 +15,7 @@ pub mod neoforge;
 pub mod network;
 pub mod reporter;
 pub mod safety;
+pub mod signing;
 pub mod updater;
 pub mod versions;
 

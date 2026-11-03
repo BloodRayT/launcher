@@ -5,7 +5,6 @@ import {
   safeImageUrl,
   safeLinkUrl,
   serverStatusLabel,
-  vkPostToCard,
 } from './utils.js';
 
 const tauriCore = window.__TAURI__?.core;
@@ -30,7 +29,7 @@ const previewResponses = {
   get_config: () => ({
     username: 'Preview_Player', accountType: 'offline', ram: 6144, width: 1280, height: 720,
     javaPath: '', jvmArgs: '-XX:+UseG1GC', showConsole: false, debugMode: false,
-    selectedVersion: 'latest-vanilla', selectedServer: 'play.fenixcraft.ru', vkToken: '',
+    selectedVersion: 'latest-vanilla', selectedServer: 'play.fenixcraft.ru',
     customServers: [], avatarData: '', licenseLogin: '', licenseToken: '', licenseUuid: '',
   }),
   get_launcher_version: () => 'dev',
@@ -89,8 +88,8 @@ const SHOP_ITEMS = [
 
 const FALLBACK_NEWS = [
   { tag: 'VK.RU/FENIXCRAFT', title: 'Сообщество FenixCraft ВКонтакте', text: 'Нажмите на карточку, чтобы открыть официальную стену vk.ru/fenixcraft со всеми новостями и конкурсами!', date: 'Официальная группа', image: '', url: 'https://vk.ru/fenixcraft' },
-  { tag: 'Магазин', tagColor: 'bg-amber-500 text-slate-950', title: 'Привилегии VIP, Creative, Moder, Admin и Money', text: 'Поддержите развитие сервера и получите уникальные возможности в разделе «Магазин».', date: 'FenixCraft Shop', image: '', url: SHOP_URL },
-  { tag: 'Лаунчер', tagColor: 'bg-cyan-500 text-slate-950', title: 'Игра запускается и без интернета', text: 'После первой полной загрузки сборка запускается без подключения к сети. Файлы проверяются по контрольным суммам.', date: 'Обновление лаунчера', image: '', url: 'https://vk.ru/fenixcraft' },
+  { tag: 'Магазин', tone: 'amber', title: 'Привилегии VIP, Creative, Moder, Admin и Money', text: 'Поддержите развитие сервера и получите уникальные возможности в разделе «Магазин».', date: 'FenixCraft Shop', image: '', url: SHOP_URL },
+  { tag: 'Лаунчер', tone: 'cyan', title: 'Игра запускается и без интернета', text: 'После первой полной загрузки сборка запускается без подключения к сети. Файлы проверяются по контрольным суммам.', date: 'Обновление лаунчера', image: '', url: 'https://vk.ru/fenixcraft' },
 ];
 
 let currentConfig = {};
@@ -169,13 +168,23 @@ function renderShop() {
 
 // --- Новости ---
 
+/** Классы выбираются только из этого списка: данные новостей приходят извне. */
+const NEWS_TAG_CLASSES = new Map([
+  ['amber', 'bg-amber-500 text-slate-950'],
+  ['cyan', 'bg-cyan-500 text-slate-950'],
+]);
+
+function newsTagClass(post) {
+  return NEWS_TAG_CLASSES.get(post.tone) ?? 'bg-emerald-500 text-slate-950';
+}
+
 function renderNews(posts) {
   byId('news-grid').innerHTML = posts.slice(0, 3).map((post) => `
     <div role="button" tabindex="0" data-external="${escapeHtml(safeLinkUrl(post.url) || 'https://vk.ru/fenixcraft')}"
          class="glass-card rounded-xl overflow-hidden flex flex-col justify-between border border-white/5 hover:border-emerald-500/40 transition cursor-pointer">
       <div class="h-28 relative bg-slate-900">
         <img src="${escapeHtml(safeImageUrl(post.image, LOCAL_NEWS_IMAGE))}" alt="" loading="lazy" class="news-image w-full h-full object-cover" />
-        <span class="absolute bottom-2 left-2 text-[10px] font-bold px-2.5 py-0.5 rounded-full ${post.tagColor || 'bg-emerald-500 text-slate-950'}">${escapeHtml(post.tag || 'VK.RU/FENIXCRAFT')}</span>
+        <span class="absolute bottom-2 left-2 text-[10px] font-bold px-2.5 py-0.5 rounded-full ${newsTagClass(post)}">${escapeHtml(post.tag || 'VK.RU/FENIXCRAFT')}</span>
       </div>
       <div class="p-3.5 flex-1 flex flex-col justify-between space-y-2">
         <div>
@@ -212,7 +221,6 @@ async function fetchNews() {
   const response = await invoke('get_vk_news');
   if (!response?.success) return null;
   if (Array.isArray(response.posts) && response.posts.length > 0) return response.posts;
-  if (Array.isArray(response.data) && response.data.length > 0) return response.data.map(vkPostToCard);
   return null;
 }
 

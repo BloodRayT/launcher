@@ -46,16 +46,3 @@ export function connectivityLabel(state) {
   return { text: 'Онлайн', tone: 'online', hint: 'Интернет и сервер сборок доступны.' };
 }
 
-/** Приводит пост из API ВКонтакте к формату карточки новости. */
-export function vkPostToCard(post) {
-  const photo = post.attachments?.find((item) => item.type === 'photo')?.photo?.sizes?.at(-1)?.url;
-  const text = (post.text || 'Новость сообщества FenixCraft').trim();
-  return {
-    tag: 'VK.RU/FENIXCRAFT',
-    title: text.split('\n')[0].substring(0, 55) || 'FenixCraft ВК',
-    text,
-    date: new Date(post.date * 1000).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }),
-    image: photo || '',
-    url: `https://vk.ru/fenixcraft?w=wall${Number(post.owner_id)}_${Number(post.id)}`,
-  };
-}

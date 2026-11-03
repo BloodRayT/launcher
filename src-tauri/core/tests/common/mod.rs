@@ -5,6 +5,8 @@ use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 
 pub type Routes = HashMap<String, (u16, Vec<u8>)>;
+/// Дополнительные заголовки ответа: путь -> готовая строка заголовка.
+pub type Headers = HashMap<String, String>;
 
 /// Минимальный HTTP-сервер для тестов. Остановка сервера имитирует пропажу сети.
 pub struct TestServer {
@@ -27,6 +29,11 @@ pub async fn bind_port() -> BoundPort {
 
 impl BoundPort {
     pub fn serve(self, routes: Routes) -> TestServer {
+        self.serve_with_headers(routes, Headers::new())
+    }
+
+    pub fn serve_with_headers(self, routes: Routes, headers: Headers) -> TestServer {
+        let headers = Arc::new(headers);
         let listener = self.listener;
         let routes = Arc::new(routes);
         let handle = tokio::spawn(async move {
@@ -35,6 +42,7 @@ impl BoundPort {
                     return;
                 };
                 let routes = routes.clone();
+                let headers = headers.clone();
                 tokio::spawn(async move {
                     let mut request = Vec::new();
                     let mut buffer = [0u8; 1024];
@@ -52,8 +60,11 @@ impl BoundPort {
                         .cloned()
                         .unwrap_or((404, b"not found".to_vec()));
                     let head = format!(
-                        "HTTP/1.1 {status} X\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-                        body.len()
+                        "HTTP/1.1 {status} X\r\nContent-Length: {}\r\nConnection: close\r\n{}\r\n",
+                        body.len(),
+                        headers
+                            .get(path)
+                            .map_or_else(String::new, |line| format!("{line}\r\n"))
                     );
                     let _ = socket.write_all(head.as_bytes()).await;
                     let _ = socket.write_all(&body).await;

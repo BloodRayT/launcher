@@ -1,4 +1,5 @@
 use fenix_core::config::{config_path, game_dir, load_config};
+use fenix_core::download::{probe_client, read_limited};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -7,6 +8,11 @@ use std::time::Duration;
 
 const PING_TIMEOUT: Duration = Duration::from_millis(2000);
 const VK_POST_COUNT: usize = 6;
+const MAX_FEED_BYTES: usize = 1024 * 1024;
+
+fn current_backend_url() -> String {
+    load_config(&config_path(&game_dir())).backend_url
+}
 
 #[derive(Deserialize)]
 pub struct ServerItem {
@@ -89,29 +95,29 @@ pub async fn get_servers_status(servers: Vec<ServerItem>) -> HashMap<String, Ser
     statuses
 }
 
+/// Статус стрима приходит с бекенда, потому что данные приложения Twitch хранятся на сервере.
 #[tauri::command]
 pub async fn check_twitch_live() -> serde_json::Value {
-    let client = reqwest::Client::builder()
-        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-        .timeout(Duration::from_secs(8))
-        .build()
-        .unwrap_or_default();
-    let body = serde_json::json!({
-        "query": "query { user(login: \"bloodrayt\") { stream { id type } } }"
-    });
+    let Ok(client) = probe_client() else {
+        return serde_json::json!({ "live": false });
+    };
+    let live = fetch_backend_json(&client, "twitch")
+        .await
+        .is_some_and(|body| body["live"].as_bool() == Some(true));
+    serde_json::json!({ "live": live })
+}
+
+async fn fetch_backend_json(client: &reqwest::Client, endpoint: &str) -> Option<serde_json::Value> {
+    let url = format!("{}/{endpoint}", current_backend_url().trim_end_matches('/'));
     let response = client
-        .post("https://gql.twitch.tv/gql")
-        .header("Client-Id", "kimne78kx3ncx6brgo4mv6wki5h1ko")
-        .json(&body)
+        .get(&url)
         .send()
-        .await;
-    if let Ok(response) = response {
-        if let Ok(json) = response.json::<serde_json::Value>().await {
-            let live = json["data"]["user"]["stream"]["type"].as_str() == Some("live");
-            return serde_json::json!({ "live": live });
-        }
-    }
-    serde_json::json!({ "live": false })
+        .await
+        .ok()?
+        .error_for_status()
+        .ok()?;
+    let body = read_limited(response, MAX_FEED_BYTES).await.ok()?;
+    serde_json::from_slice(&body).ok()
 }
 
 fn strip_html_tags(input: &str) -> String {
@@ -184,38 +190,23 @@ fn parse_wall_html(html: &str) -> Vec<serde_json::Value> {
         .collect()
 }
 
+async fn news_from_backend(client: &reqwest::Client) -> Option<serde_json::Value> {
+    let body = fetch_backend_json(client, "news").await?;
+    (body["success"].as_bool() == Some(true)).then_some(body)
+}
+
+/// Основной источник новостей — бекенд, где хранится токен VK.
+/// Если он недоступен, лаунчер читает открытую стену сообщества без токена.
 #[tauri::command]
 pub async fn get_vk_news() -> serde_json::Value {
-    let config = load_config(&config_path(&game_dir()));
-    let token = if config.vk_token.trim().is_empty() {
-        std::env::var("VK_TOKEN").unwrap_or_default()
-    } else {
-        config.vk_token.trim().to_string()
-    };
     let client = reqwest::Client::builder()
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36")
         .timeout(Duration::from_secs(10))
         .build()
         .unwrap_or_default();
 
-    if !token.is_empty() {
-        let url = format!(
-            "https://api.vk.ru/method/wall.get?domain=fenixcraft&count={VK_POST_COUNT}&access_token={token}&v=5.199"
-        );
-        if let Ok(response) = client.get(&url).send().await {
-            if let Ok(json) = response.json::<serde_json::Value>().await {
-                if json["response"]["items"]
-                    .as_array()
-                    .is_some_and(|items| !items.is_empty())
-                {
-                    return serde_json::json!({
-                        "success": true,
-                        "source": "api",
-                        "data": json["response"]["items"]
-                    });
-                }
-            }
-        }
+    if let Some(news) = news_from_backend(&client).await {
+        return news;
     }
 
     for url in ["https://m.vk.ru/fenixcraft", "https://vk.ru/fenixcraft"] {

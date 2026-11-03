@@ -2,7 +2,7 @@
 
 mod common;
 
-use common::{bind_port, Routes, TestServer};
+use common::{bind_port, Headers, Routes, TestServer};
 use fenix_core::backend_sync::{sync_profile, SyncOutcome};
 use fenix_core::config::LauncherConfig;
 use fenix_core::errors::LauncherError;
@@ -481,5 +481,190 @@ async fn profiles_keep_their_game_files_apart() {
         arg_after(&fabric, "--assetsDir")
     );
     assert!(dir.path().join("versions").join(VERSION).exists());
+    server.stop().await;
+}
+
+const TEST_PUBLIC_KEY: &str = "6kpsY+KcUgq+9VB7Ey7F+ZVHdq6+vnuSQh7qaRRG0iw=";
+
+fn test_signing_key() -> ed25519_dalek::SigningKey {
+    ed25519_dalek::SigningKey::from_bytes(&[7u8; 32])
+}
+
+fn signature_header(body: &[u8]) -> String {
+    use base64::Engine;
+    use ed25519_dalek::Signer;
+    let signature = test_signing_key().sign(body).to_bytes();
+    format!(
+        "X-Manifest-Signature: {}",
+        base64::engine::general_purpose::STANDARD.encode(signature)
+    )
+}
+
+fn signed_context(root: &Path, base: &str) -> LaunchContext {
+    let mut ctx = context(root, base);
+    ctx.manifest_public_key = Some(TEST_PUBLIC_KEY.to_string());
+    ctx
+}
+
+fn manifest_route(routes: &Routes) -> Vec<u8> {
+    routes["/manifest/test-profile"].1.clone()
+}
+
+#[tokio::test]
+async fn signed_manifest_is_applied_and_trusted_from_cache() {
+    let dir = TempDir::new().unwrap();
+    let port = bind_port().await;
+    let base = port.base.clone();
+    let routes = backend_routes(&base, b"server mod");
+    let mut headers = Headers::new();
+    headers.insert(
+        "/manifest/test-profile".to_string(),
+        signature_header(&manifest_route(&routes)),
+    );
+    let server = port.serve_with_headers(routes, headers);
+    let ctx = signed_context(dir.path(), &base);
+
+    assert_eq!(
+        sync_profile(&ctx, "test-profile", &base).await,
+        Ok(SyncOutcome::Fresh)
+    );
+    let installed = dir
+        .path()
+        .join("instances/test-profile/mods/server-mod.jar");
+    assert!(installed.exists());
+
+    server.stop().await;
+    assert_eq!(
+        sync_profile(&ctx, "test-profile", &base).await,
+        Ok(SyncOutcome::Cached)
+    );
+
+    // Подменённый на диске манифест не используется.
+    let cache = dir.path().join("profiles/test-profile/manifest.json");
+    let tampered = std::fs::read_to_string(&cache)
+        .unwrap()
+        .replace("server-mod", "evil-mod");
+    std::fs::write(&cache, tampered).unwrap();
+    assert_eq!(
+        sync_profile(&ctx, "test-profile", &base).await,
+        Ok(SyncOutcome::Unavailable)
+    );
+}
+
+#[tokio::test]
+async fn tampered_manifest_changes_nothing() {
+    let dir = TempDir::new().unwrap();
+    let port = bind_port().await;
+    let base = port.base.clone();
+    let routes = backend_routes(&base, b"server mod");
+    let mut headers = Headers::new();
+    headers.insert(
+        "/manifest/test-profile".to_string(),
+        signature_header(b"a different body"),
+    );
+    let server = port.serve_with_headers(routes, headers);
+    let foreign = dir
+        .path()
+        .join("instances/test-profile/mods/player-mod.jar");
+    std::fs::create_dir_all(foreign.parent().unwrap()).unwrap();
+    std::fs::write(&foreign, "player mod").unwrap();
+
+    let result = sync_profile(&signed_context(dir.path(), &base), "test-profile", &base).await;
+
+    assert!(
+        matches!(result, Err(LauncherError::BadManifest(_))),
+        "{result:?}"
+    );
+    assert!(foreign.exists());
+    assert!(!dir
+        .path()
+        .join("instances/test-profile/mods/server-mod.jar")
+        .exists());
+    assert!(!dir
+        .path()
+        .join("profiles/test-profile/manifest.json")
+        .exists());
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn unsigned_manifest_is_rejected_when_a_key_is_embedded() {
+    let dir = TempDir::new().unwrap();
+    let port = bind_port().await;
+    let base = port.base.clone();
+    let server = port.serve(backend_routes(&base, b"server mod"));
+
+    let result = sync_profile(&signed_context(dir.path(), &base), "test-profile", &base).await;
+
+    assert!(
+        matches!(result, Err(LauncherError::BadManifest(_))),
+        "{result:?}"
+    );
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn captive_portal_page_is_not_treated_as_an_attack() {
+    let dir = TempDir::new().unwrap();
+    let port = bind_port().await;
+    let base = port.base.clone();
+    let mut routes = Routes::new();
+    route(
+        &mut routes,
+        "/manifest/test-profile",
+        b"<html>login to wifi</html>".to_vec(),
+    );
+    let server = port.serve(routes);
+
+    let result = sync_profile(&signed_context(dir.path(), &base), "test-profile", &base).await;
+
+    assert_eq!(result, Ok(SyncOutcome::Unavailable));
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn signed_manifest_of_another_profile_is_rejected() {
+    let dir = TempDir::new().unwrap();
+    let port = bind_port().await;
+    let base = port.base.clone();
+    let mut routes = backend_routes(&base, b"server mod");
+    let body = manifest_route(&routes);
+    routes.insert("/manifest/other-profile".to_string(), (200, body.clone()));
+    let mut headers = Headers::new();
+    headers.insert(
+        "/manifest/other-profile".to_string(),
+        signature_header(&body),
+    );
+    let server = port.serve_with_headers(routes, headers);
+
+    let result = sync_profile(&signed_context(dir.path(), &base), "other-profile", &base).await;
+
+    assert!(
+        matches!(result, Err(LauncherError::BadManifest(_))),
+        "{result:?}"
+    );
+    assert!(!dir
+        .path()
+        .join("instances/other-profile/mods/server-mod.jar")
+        .exists());
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn oversized_manifest_is_not_read_into_memory() {
+    let dir = TempDir::new().unwrap();
+    let port = bind_port().await;
+    let base = port.base.clone();
+    let mut routes = Routes::new();
+    route(
+        &mut routes,
+        "/manifest/test-profile",
+        vec![b' '; 6 * 1024 * 1024],
+    );
+    let server = port.serve(routes);
+
+    let result = sync_profile(&context(dir.path(), &base), "test-profile", &base).await;
+
+    assert_eq!(result, Ok(SyncOutcome::Unavailable));
     server.stop().await;
 }
