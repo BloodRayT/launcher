@@ -593,3 +593,69 @@ async fn oversized_manifest_is_not_read_into_memory() {
     assert_eq!(result, Ok(SyncOutcome::Unavailable));
     server.stop().await;
 }
+
+#[tokio::test]
+async fn fabric_jvm_arguments_reach_the_game() {
+    let dir = TempDir::new().unwrap();
+    let (server, base) = start_mojang(|routes| {
+        route(
+            routes,
+            "/fabric/versions/loader/1.0.0",
+            json!([{ "loader": { "version": "0.1" } }]).to_string(),
+        );
+        route(
+            routes,
+            "/fabric/versions/loader/1.0.0/0.1/profile/json",
+            json!({
+                "mainClass": "Knot",
+                "libraries": [],
+                "arguments": { "jvm": ["-DFabricMcEmu= net.minecraft.client.main.Main "] }
+            })
+            .to_string(),
+        );
+    })
+    .await;
+
+    let plan = prepare_launch(
+        &context(dir.path(), &base),
+        &config(&dir, "1.0.0-fabric", &base),
+    )
+    .await
+    .unwrap();
+
+    let emu = plan
+        .args
+        .iter()
+        .position(|arg| arg.starts_with("-DFabricMcEmu="))
+        .unwrap();
+    let main_class = plan.args.iter().position(|arg| arg == "Knot").unwrap();
+    assert!(
+        emu < main_class,
+        "JVM options must come before the main class"
+    );
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn fabric_server_error_is_not_reported_as_missing_internet() {
+    let dir = TempDir::new().unwrap();
+    let (server, base) = start_mojang(|routes| {
+        routes.insert(
+            "/fabric/versions/loader/1.0.0".to_string(),
+            (500, Vec::new()),
+        );
+    })
+    .await;
+
+    let result = prepare_launch(
+        &context(dir.path(), &base),
+        &config(&dir, "1.0.0-fabric", &base),
+    )
+    .await;
+
+    assert!(
+        matches!(result, Err(LauncherError::Download { .. })),
+        "{result:?}"
+    );
+    server.stop().await;
+}

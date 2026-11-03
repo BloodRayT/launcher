@@ -64,10 +64,8 @@ def get_servers():
         with open(SERVERS_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
     return [
-        {"id": "fenix-main", "name": "FenixCraft", "desc": "Выживание • Vanilla/Mods", "ip": "play.fenixcraft.ru", "port": 25565, "icon": "🦅", "maxDefault": 1000},
-        {"id": "fenix-mods", "name": "FenixTech", "desc": "NeoForge • 1.21.1", "ip": "tech.fenixcraft.ru", "port": 25565, "icon": "⚙️", "maxDefault": 500},
-        {"id": "fenix-rpg",  "name": "FenixRPG",  "desc": "Fabric + Iris • 1.21.11", "ip": "rpg.fenixcraft.ru", "port": 25565, "icon": "⚔️", "maxDefault": 500},
-        {"id": "fenix-pvp",  "name": "FenixArena", "desc": "Анархия • 1.21.11", "ip": "pvp.fenixcraft.ru", "port": 25565, "icon": "⭐", "maxDefault": 300}
+        {"id": "fenix-main", "name": "FenixCraft", "desc": "Vanilla • 26.3", "ip": "play.fenixcraft.ru", "port": 25565, "icon": "🦅", "maxDefault": 1000},
+        {"id": "fenix-mods", "name": "FenixTech", "desc": "NeoForge • 1.21.1", "ip": "tech.fenixcraft.ru", "port": 25565, "icon": "⚙️", "maxDefault": 500}
     ]
 
 @app.get("/api/launcher/manifest/{profile}")

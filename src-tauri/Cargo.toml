@@ -3,7 +3,7 @@ members = ["core"]
 
 [package]
 name = "fenixcraft-launcher"
-version = "1.0.13"
+version = "1.0.14"
 description = "Official FenixCraft Launcher (Tauri v2)"
 authors = ["BloodRayT"]
 edition = "2021"

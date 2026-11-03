@@ -18,12 +18,7 @@ def test_servers_are_served_from_the_committed_file(client: TestClient) -> None:
     response = client.get("/api/launcher/servers")
 
     assert response.status_code == 200
-    assert {server["id"] for server in response.json()} == {
-        "fenix-main",
-        "fenix-mods",
-        "fenix-rpg",
-        "fenix-pvp",
-    }
+    assert {server["id"] for server in response.json()} == {"fenix-main", "fenix-mods"}
 
 
 def test_servers_fall_back_when_the_file_path_is_a_directory(
@@ -35,7 +30,7 @@ def test_servers_fall_back_when_the_file_path_is_a_directory(
     response = client.get("/api/launcher/servers")
 
     assert response.status_code == 200
-    assert len(response.json()) == 4
+    assert len(response.json()) == 2
 
 
 def test_manifest_lists_files_with_correct_hashes(client: TestClient) -> None:

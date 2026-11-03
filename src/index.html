@@ -119,13 +119,10 @@
 
               <!-- Выпадающий список версий строго в вашем порядке -->
               <select id="select-version" class="bg-[#111921]/95 border border-white/15 text-white text-sm rounded-xl px-4 py-3 focus:outline-none focus:border-emerald-500">
-                <option value="latest-vanilla">Основной ванильный сервер (Самая последняя)</option>
-                <option value="1.21.11-vanilla">Vanilla 1.21.11</option>
+                <option value="26.3-vanilla">Vanilla 26.3</option>
+                <option value="26.3-iris">Vanilla 26.3 + Iris (шейдеры)</option>
                 <option value="1.21.1-neoforge">NeoForge 1.21.1</option>
-                <option value="1.21.11-fabric">Fabric 1.21.11</option>
-                <option value="1.21.11-iris">Iris</option>
-                <option value="1.21.1-iris-neoforge">Iris + NeoForge</option>
-                <option value="1.21.11-iris-fabric">Iris + Fabric</option>
+                <option value="1.21.1-iris-neoforge">NeoForge 1.21.1 + Iris (шейдеры)</option>
               </select>
 
               <button id="btn-quick-settings" data-open-tab="settings" aria-label="Настройки" class="bg-[#111921]/90 hover:bg-[#1a2632] border border-white/15 p-3 rounded-xl text-slate-300 shrink-0">🎚️</button>
@@ -144,9 +141,9 @@
         </div>
 
         <div class="grid grid-cols-4 gap-4">
-          <div role="button" tabindex="0" data-select-profile="latest-vanilla" class="glass-card rounded-xl p-3.5 hover:border-emerald-500/40 transition cursor-pointer">
+          <div role="button" tabindex="0" data-select-profile="26.3-vanilla" class="glass-card rounded-xl p-3.5 hover:border-emerald-500/40 transition cursor-pointer">
             <div class="text-emerald-400 text-lg mb-1">🌱</div>
-            <div class="text-sm font-bold text-white">Последняя Vanilla</div>
+            <div class="text-sm font-bold text-white">Vanilla 26.3</div>
             <div class="text-xs text-emerald-400 mt-0.5">Основной сервер →</div>
           </div>
           <div role="button" tabindex="0" data-open-tab="shop" class="glass-card rounded-xl p-3.5 hover:border-amber-500/40 transition cursor-pointer">
@@ -332,7 +329,7 @@
             <div class="flex items-center space-x-3">
               <div class="w-10 h-10 rounded-lg bg-emerald-500/20 flex items-center justify-center">🌍</div>
               <div>
-                <div id="last-launch-ver" class="text-xs font-bold text-white truncate max-w-[140px]">Основной ванильный</div>
+                <div id="last-launch-ver" class="text-xs font-bold text-white truncate max-w-[140px]">Vanilla 26.3</div>
                 <div class="text-[11px] text-slate-400">Запуск зеленой кнопкой</div>
               </div>
             </div>
