@@ -914,8 +914,8 @@ function setupProfileBlock() {
 })();
 
 
-// Автоматическая синхронизация версии из бинарника Tauri
-async function syncInstalledVersion() {
+// Безопасная синхронизация номера версии
+async function syncCoreVersion() {
   try {
     const tCore = window.__TAURI__ ? (window.__TAURI__.core || window.__TAURI__.tauri) : null;
     if (tCore && tCore.invoke) {
@@ -928,8 +928,8 @@ async function syncInstalledVersion() {
   } catch(e) {}
 }
 
-// Отслеживание онлайн статуса Twitch для бейджа LIVE
-async function checkTwitchLive() {
+// Отслеживание онлайн-статуса Twitch
+async function checkTwitchStatus() {
   try {
     const img = new Image();
     img.src = 'https://static-cdn.jtvnw.net/previews-ttv/live_user_bloodrayt-320x180.jpg?' + Date.now();
@@ -940,7 +940,28 @@ async function checkTwitchLive() {
   } catch(e) {}
 }
 
+// Мгновенная смена никнейма в DOM
+document.addEventListener('click', (e) => {
+  const saveBtn = e.target.closest('#btn-sidebar-save-nick');
+  if (!saveBtn) return;
+  const input = document.getElementById('sidebar-nick-input');
+  if (!input) return;
+  const val = input.value.trim();
+  if (!val) return;
+
+  const userBadge = document.getElementById('sidebar-username') || document.querySelector('.user-display-name');
+  if (userBadge) userBadge.textContent = val;
+
+  const authMsg = document.getElementById('sidebar-auth-msg');
+  if (authMsg) authMsg.textContent = 'Ник сохранен: ' + val;
+  saveBtn.textContent = '✅ Сохранено!';
+  setTimeout(() => {
+    saveBtn.textContent = 'Сохранить ник';
+    if (authMsg) authMsg.textContent = '';
+  }, 2000);
+}, true);
+
 document.addEventListener('DOMContentLoaded', () => {
-  syncInstalledVersion();
-  checkTwitchLive();
+  syncCoreVersion();
+  checkTwitchStatus();
 });
