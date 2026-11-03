@@ -912,25 +912,3 @@ function setupProfileBlock() {
   setInterval(updateTwitchStatus, 30000);
   setInterval(refreshServers, 30000);
 })();
-
-
-// Мгновенное обновление никнейма в DOM без задержек
-document.addEventListener('click', function(e) {
-  const saveBtn = e.target.closest('#btn-sidebar-save-nick');
-  if (!saveBtn) return;
-  const input = document.getElementById('sidebar-nick-input');
-  if (!input) return;
-  const val = input.value.trim();
-  if (!val) return;
-
-  const userBadge = document.getElementById('sidebar-username') || document.querySelector('.user-display-name');
-  if (userBadge) userBadge.textContent = val;
-
-  const authMsg = document.getElementById('sidebar-auth-msg');
-  if (authMsg) authMsg.textContent = 'Ник сохранен: ' + val;
-  saveBtn.textContent = '✅ Сохранено!';
-  setTimeout(() => {
-    saveBtn.textContent = 'Сохранить ник';
-    if (authMsg) authMsg.textContent = '';
-  }, 2000);
-}, true);
