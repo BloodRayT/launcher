@@ -1,16 +1,16 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod accounts;
 mod feeds;
 
 use fenix_core::assets::{verify_assets, AssetAudit};
-use fenix_core::auth::{authenticate, AuthResult, ELY_AUTH_URL};
 use fenix_core::config::{
     config_path, game_dir, load_config, official_minecraft_dir, save_config, LauncherConfig,
 };
 use fenix_core::download::{download_client, probe_client};
 use fenix_core::errors::{LauncherError, UserError};
 use fenix_core::instances::instance_dir;
-use fenix_core::launch::{prepare_launch, run_game, LaunchContext};
+use fenix_core::launch::{prepare_launch_as, run_game, LaunchContext};
 use fenix_core::network::{check_connectivity, Connectivity};
 use fenix_core::reporter::{GameEvent, Reporter};
 use fenix_core::safety::{is_trusted_update_url, parse_external_url};
@@ -112,23 +112,6 @@ async fn verify_assets_command(app: AppHandle) -> Result<AssetAudit, String> {
         .map_err(|err| err.to_string())
 }
 
-#[tauri::command]
-async fn authenticate_ely(username: String, password: String) -> AuthResult {
-    let client = match probe_client() {
-        Ok(client) => client,
-        Err(err) => {
-            return AuthResult {
-                success: false,
-                username: String::new(),
-                uuid: String::new(),
-                token: String::new(),
-                error: err.to_string(),
-            }
-        }
-    };
-    authenticate(&client, ELY_AUTH_URL, &username, &password).await
-}
-
 fn last_lines(path: &PathBuf, count: usize) -> Option<String> {
     let content = std::fs::read_to_string(path).ok()?;
     let lines: Vec<&str> = content.lines().collect();
@@ -207,7 +190,8 @@ async fn prepare_and_run(reporter: Reporter) -> Result<(), LauncherError> {
         LAUNCHER_VERSION,
         reporter.clone(),
     )?;
-    let plan = prepare_launch(&ctx, &config).await?;
+    let identity = accounts::resolve_identity(&config, &reporter).await?;
+    let plan = prepare_launch_as(&ctx, &config, &identity).await?;
     tauri::async_runtime::spawn_blocking(move || run_game(&plan, &reporter))
         .await
         .map_err(|err| LauncherError::Io(err.to_string()))?
@@ -248,7 +232,10 @@ fn main() {
             feeds::get_vk_news,
             feeds::check_twitch_live,
             verify_assets_command,
-            authenticate_ely,
+            accounts::ms_login_available,
+            accounts::ms_login_start,
+            accounts::ms_login_cancel,
+            accounts::ms_logout,
             save_debug_log,
             check_launcher_update,
             install_launcher_update,

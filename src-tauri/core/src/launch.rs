@@ -8,6 +8,7 @@ use crate::errors::LauncherError;
 use crate::instances::prepare_instance;
 use crate::java::{ensure_java, hide_console, required_java_major};
 use crate::libraries::{argument_allowed, current_os, extract_natives, LibrarySet};
+use crate::microsoft::MinecraftAccount;
 use crate::mods::ensure_shader_mods;
 use crate::neoforge::{find_installed_neoforge, install_neoforge};
 use crate::reporter::Reporter;
@@ -60,6 +61,45 @@ impl LaunchContext {
             probe_client: probe_client()?,
             reporter,
         })
+    }
+}
+
+/// От чьего имени запускается игра.
+#[derive(Clone, PartialEq, Eq)]
+pub struct PlayerIdentity {
+    pub username: String,
+    pub uuid: String,
+    pub access_token: String,
+    pub xuid: String,
+    pub licensed: bool,
+}
+
+impl PlayerIdentity {
+    /// Пиратка: только ник, без сетевой проверки.
+    pub fn offline(username: &str) -> Self {
+        Self::unverified(username, &offline_uuid(username))
+    }
+
+    /// Имя и UUID известны, но подтвердить их сейчас нельзя (например, нет сети).
+    pub fn unverified(username: &str, uuid: &str) -> Self {
+        Self {
+            username: username.to_string(),
+            uuid: uuid.to_string(),
+            access_token: OFFLINE_ACCESS_TOKEN.to_string(),
+            xuid: "0".to_string(),
+            licensed: false,
+        }
+    }
+
+    /// Настоящая сессия Microsoft: серверы с проверкой лицензии пускают без пароля.
+    pub fn licensed(account: MinecraftAccount) -> Self {
+        Self {
+            username: account.username,
+            uuid: account.uuid,
+            access_token: account.access_token,
+            xuid: account.xuid,
+            licensed: true,
+        }
     }
 }
 
@@ -375,21 +415,26 @@ struct GameArgs<'a> {
     assets_dir: &'a Path,
     version: &'a str,
     asset_id: &'a str,
-    access_token: &'a str,
+    identity: &'a PlayerIdentity,
 }
 
 fn game_args(config: &LauncherConfig, game_dir: &Path, game: &GameArgs<'_>) -> Vec<String> {
+    let user_type = if game.identity.licensed {
+        "msa"
+    } else {
+        "mojang"
+    };
     let pairs = [
-        ("--username", config.username.clone()),
+        ("--username", game.identity.username.clone()),
         ("--version", game.version.to_string()),
         ("--gameDir", game_dir.to_string_lossy().to_string()),
         ("--assetsDir", game.assets_dir.to_string_lossy().to_string()),
         ("--assetIndex", game.asset_id.to_string()),
-        ("--uuid", offline_uuid(&config.username)),
-        ("--accessToken", game.access_token.to_string()),
+        ("--uuid", game.identity.uuid.clone()),
+        ("--accessToken", game.identity.access_token.clone()),
         ("--clientId", "0".to_string()),
-        ("--xuid", "0".to_string()),
-        ("--userType", "mojang".to_string()),
+        ("--xuid", game.identity.xuid.clone()),
+        ("--userType", user_type.to_string()),
         ("--versionType", "release".to_string()),
         ("--width", config.width.to_string()),
         ("--height", config.height.to_string()),
@@ -404,6 +449,7 @@ async fn plan_neoforge(
     ctx: &LaunchContext,
     config: &LauncherConfig,
     game_dir: &Path,
+    identity: &PlayerIdentity,
 ) -> Result<LaunchPlan, LauncherError> {
     let minecraft = base_version(&config.selected_version)
         .ok_or_else(|| {
@@ -484,7 +530,7 @@ async fn plan_neoforge(
             assets_dir: &ctx.root.join("assets"),
             version: &neo_id,
             asset_id: &vanilla.asset_id,
-            access_token: "0",
+            identity,
         },
     ));
     for arg in neo_json["arguments"]["game"]
@@ -508,6 +554,7 @@ async fn plan_vanilla_or_fabric(
     ctx: &LaunchContext,
     config: &LauncherConfig,
     game_dir: &Path,
+    identity: &PlayerIdentity,
 ) -> Result<LaunchPlan, LauncherError> {
     let profile = &config.selected_version;
     let mut vanilla = prepare_vanilla(ctx, profile).await?;
@@ -534,8 +581,11 @@ async fn plan_vanilla_or_fabric(
         launcher_version: &ctx.launcher_version,
     };
     let mut args = standard_jvm_args(config, &vanilla.json, &placeholders);
-    args.push("-Dauthlib.userApiService.enabled=false".to_string());
-    args.push("-Dminecraft.api.env=custom".to_string());
+    // Эти флаги нужны только без настоящей сессии: иначе игра сама обращается к сервисам Mojang.
+    if !identity.licensed {
+        args.push("-Dauthlib.userApiService.enabled=false".to_string());
+        args.push("-Dminecraft.api.env=custom".to_string());
+    }
     if major >= 25 {
         args.push("--sun-misc-unsafe-memory-access=allow".to_string());
     }
@@ -548,7 +598,7 @@ async fn plan_vanilla_or_fabric(
             assets_dir: &ctx.root.join("assets"),
             version: &vanilla.version,
             asset_id: &vanilla.asset_id,
-            access_token: OFFLINE_ACCESS_TOKEN,
+            identity,
         },
     ));
 
@@ -624,7 +674,16 @@ pub async fn prepare_launch(
     ctx: &LaunchContext,
     config: &LauncherConfig,
 ) -> Result<LaunchPlan, LauncherError> {
-    if !is_valid_username(&config.username) {
+    prepare_launch_as(ctx, config, &PlayerIdentity::offline(&config.username)).await
+}
+
+/// То же для указанного игрока: пиратки или лицензии.
+pub async fn prepare_launch_as(
+    ctx: &LaunchContext,
+    config: &LauncherConfig,
+    identity: &PlayerIdentity,
+) -> Result<LaunchPlan, LauncherError> {
+    if !is_valid_username(&identity.username) {
         return Err(LauncherError::InvalidUsername);
     }
     let profile = &config.selected_version;
@@ -641,8 +700,10 @@ pub async fn prepare_launch(
     ensure_default_game_options(&game_dir)?;
 
     match loader_of(profile) {
-        Loader::NeoForge => plan_neoforge(ctx, config, &game_dir).await,
-        Loader::Vanilla | Loader::Fabric => plan_vanilla_or_fabric(ctx, config, &game_dir).await,
+        Loader::NeoForge => plan_neoforge(ctx, config, &game_dir, identity).await,
+        Loader::Vanilla | Loader::Fabric => {
+            plan_vanilla_or_fabric(ctx, config, &game_dir, identity).await
+        }
     }
 }
 
@@ -862,7 +923,7 @@ mod tests {
                 assets_dir: Path::new("root/assets"),
                 version: "1.21.11",
                 asset_id: "29",
-                access_token: "0",
+                identity: &PlayerIdentity::offline("Fenix"),
             },
         );
         let value_of = |name: &str| {
@@ -876,6 +937,36 @@ mod tests {
         assert_eq!(value_of("--version"), "1.21.11");
         assert_eq!(value_of("--assetIndex"), "29");
         assert_eq!(value_of("--uuid"), offline_uuid("Fenix"));
+    }
+
+    #[test]
+    fn licensed_player_gets_the_real_session_in_game_arguments() {
+        let identity = PlayerIdentity::licensed(MinecraftAccount {
+            username: "RealPlayer".to_string(),
+            uuid: "abc".to_string(),
+            access_token: "mc-token".to_string(),
+            xuid: "2535".to_string(),
+        });
+        let args = game_args(
+            &LauncherConfig::default(),
+            Path::new("instance"),
+            &GameArgs {
+                assets_dir: Path::new("assets"),
+                version: "1.21.11",
+                asset_id: "29",
+                identity: &identity,
+            },
+        );
+        let value_of = |name: &str| {
+            let at = args.iter().position(|arg| arg == name).unwrap();
+            args[at + 1].clone()
+        };
+
+        assert_eq!(value_of("--username"), "RealPlayer");
+        assert_eq!(value_of("--uuid"), "abc");
+        assert_eq!(value_of("--accessToken"), "mc-token");
+        assert_eq!(value_of("--xuid"), "2535");
+        assert_eq!(value_of("--userType"), "msa");
     }
 
     #[test]

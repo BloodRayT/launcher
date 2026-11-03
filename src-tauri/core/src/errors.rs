@@ -21,6 +21,12 @@ pub enum LauncherError {
     BadManifest(String),
     #[error("Сервер сборок сейчас недоступен: идут технические работы.")]
     BackendMaintenance,
+    #[error("{0}.")]
+    Microsoft(String),
+    #[error("Вход в аккаунт Microsoft устарел.")]
+    MicrosoftSessionExpired,
+    #[error("На этом аккаунте Microsoft нет Minecraft: Java Edition.")]
+    MicrosoftNoGame,
     #[error("Файлы игры содержат некорректные данные: {0}.")]
     BadData(String),
     #[error("Ошибка работы с файлами: {0}.")]
@@ -75,6 +81,21 @@ impl LauncherError {
                 "backend_maintenance",
                 "Технические работы",
                 "Сборки с модами временно недоступны, ванильные версии запускаются как обычно. Если отключён интернет, проверьте подключение.",
+            ),
+            Self::Microsoft(_) => (
+                "microsoft_failed",
+                "Не удалось войти",
+                "Попробуйте ещё раз или выберите режим «Пиратка».",
+            ),
+            Self::MicrosoftSessionExpired => (
+                "microsoft_session_expired",
+                "Нужно войти заново",
+                "Нажмите «Войти через Microsoft» в блоке профиля.",
+            ),
+            Self::MicrosoftNoGame => (
+                "microsoft_no_game",
+                "Игра не куплена",
+                "Войдите в аккаунт с купленной игрой или выберите режим «Пиратка».",
             ),
             Self::BadData(_) => (
                 "bad_data",

@@ -42,7 +42,7 @@ jobs:
         if: matrix.platform == 'ubuntu-22.04'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libasound2-dev libssl-dev
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libasound2-dev libssl-dev libdbus-1-dev
 
       - name: Install UI build tools
         run: npm ci
@@ -54,6 +54,7 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FENIX_MS_CLIENT_ID: ${{ vars.FENIX_MS_CLIENT_ID }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'FenixCraft Launcher ${{ github.ref_name }}'

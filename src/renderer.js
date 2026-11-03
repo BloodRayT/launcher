@@ -30,7 +30,7 @@ const previewResponses = {
     username: 'Preview_Player', accountType: 'offline', ram: 6144, width: 1280, height: 720,
     javaPath: '', jvmArgs: '-XX:+UseG1GC', showConsole: false, debugMode: false,
     selectedVersion: 'latest-vanilla', selectedServer: 'play.fenixcraft.ru',
-    customServers: [], avatarData: '', licenseLogin: '', licenseToken: '', licenseUuid: '',
+    customServers: [], avatarData: '', msUsername: '', msUuid: '',
   }),
   get_launcher_version: () => 'dev',
   get_connectivity: () => ({ internet: true, backend: true }),
@@ -38,6 +38,7 @@ const previewResponses = {
   get_vk_news: () => ({ success: false }),
   check_twitch_live: () => ({ live: false }),
   check_launcher_update: () => ({ updateAvailable: false }),
+  ms_login_available: () => false,
   save_launcher_config: (args) => args.newConfig,
 };
 
@@ -89,7 +90,7 @@ const SHOP_ITEMS = [
 const FALLBACK_NEWS = [
   { tag: 'VK.RU/FENIXCRAFT', title: 'Сообщество FenixCraft ВКонтакте', text: 'Нажмите на карточку, чтобы открыть официальную стену vk.ru/fenixcraft со всеми новостями и конкурсами!', date: 'Официальная группа', image: '', url: 'https://vk.ru/fenixcraft' },
   { tag: 'Магазин', tone: 'amber', title: 'Привилегии VIP, Creative, Moder, Admin и Money', text: 'Поддержите развитие сервера и получите уникальные возможности в разделе «Магазин».', date: 'FenixCraft Shop', image: '', url: SHOP_URL },
-  { tag: 'Лаунчер', tone: 'cyan', title: 'Игра запускается и без интернета', text: 'После первой полной загрузки сборка запускается без подключения к сети. Файлы проверяются по контрольным суммам.', date: 'Обновление лаунчера', image: '', url: 'https://vk.ru/fenixcraft' },
+  { tag: 'Лаунчер', tone: 'cyan', title: 'Ванильная игра запускается и без интернета', text: 'После первой полной загрузки ванильная версия работает без подключения к сети. Файлы проверяются по контрольным суммам.', date: 'Обновление лаунчера', image: '', url: 'https://vk.ru/fenixcraft' },
 ];
 
 let currentConfig = {};
@@ -147,7 +148,7 @@ function switchTab(tabId) {
 // --- Магазин ---
 
 function renderShop() {
-  const buyer = escapeHtml(currentConfig.username || 'Игрока');
+  const buyer = escapeHtml(displayName() || 'Игрока');
   byId('shop-grid').innerHTML = SHOP_ITEMS.map((item) => `
     <div class="rounded-2xl p-4 bg-gradient-to-br ${item.color} border flex flex-col justify-between space-y-4">
       <div>
@@ -369,15 +370,35 @@ function bindSettings() {
 
 // --- Профиль ---
 
+let accountTab = 'offline';
+let microsoftAvailable = false;
+let nickTimer = null;
+
+const NICK_RULES_MESSAGE = 'Ник: 3–16 латинских букв, цифр или _';
+
+function isLicensed() {
+  return currentConfig.accountType === 'microsoft';
+}
+
+function displayName() {
+  return isLicensed() ? currentConfig.msUsername : currentConfig.username;
+}
+
 function renderProfile() {
-  const isEly = currentConfig.accountType === 'mojang';
-  byId('sidebar-acc-type').value = isEly ? 'mojang' : 'offline';
-  byId('sidebar-offline-box').classList.toggle('hidden', isEly);
-  byId('sidebar-license-box').classList.toggle('hidden', !isEly);
-  byId('sidebar-account-type').textContent = isEly ? 'Ely.by' : 'Без пароля';
-  byId('sidebar-username').textContent = currentConfig.username || 'Новый игрок';
-  byId('sidebar-nick-input').value = currentConfig.username || '';
-  byId('sidebar-license-login').value = currentConfig.licenseLogin || '';
+  document.querySelectorAll('[data-account-tab]').forEach((tab) => {
+    tab.setAttribute('aria-pressed', String(tab.dataset.accountTab === accountTab));
+  });
+  const signedIn = Boolean(currentConfig.msUuid);
+  byId('sidebar-offline-box').classList.toggle('hidden', accountTab !== 'offline');
+  byId('sidebar-license-box').classList.toggle('hidden', accountTab !== 'microsoft');
+  byId('btn-ms-login').classList.toggle('hidden', signedIn);
+  byId('btn-ms-logout').classList.toggle('hidden', !signedIn);
+  byId('btn-ms-login').disabled = !microsoftAvailable;
+  byId('btn-ms-login').textContent = microsoftAvailable ? 'Войти через Microsoft' : 'Вход пока не настроен';
+  byId('sidebar-account-type').textContent = isLicensed() ? 'Лицензия' : 'Пиратка';
+  byId('sidebar-username').textContent = displayName() || 'Новый игрок';
+  const nickInput = byId('sidebar-nick-input');
+  if (document.activeElement !== nickInput) nickInput.value = currentConfig.username || '';
   const settingsUsername = byId('cfg-username');
   if (document.activeElement !== settingsUsername) settingsUsername.value = currentConfig.username || '';
 }
@@ -428,54 +449,94 @@ function bindProfile() {
     reader.readAsDataURL(file);
   });
 
-  byId('sidebar-acc-type').addEventListener('change', (event) => {
-    const isEly = event.target.value === 'mojang';
-    byId('sidebar-offline-box').classList.toggle('hidden', isEly);
-    byId('sidebar-license-box').classList.toggle('hidden', !isEly);
+  document.querySelectorAll('[data-account-tab]').forEach((tab) => {
+    tab.addEventListener('click', () => selectAccountTab(tab.dataset.accountTab));
   });
 
-  byId('btn-sidebar-save-nick').addEventListener('click', async () => {
-    const username = byId('sidebar-nick-input').value.trim();
+  // Ник применяется сразу, как только он становится допустимым.
+  const nickInput = byId('sidebar-nick-input');
+  nickInput.addEventListener('input', () => {
+    clearTimeout(nickTimer);
+    const username = nickInput.value.trim();
     if (!isValidUsername(username)) {
-      flashAuthMessage('Ник: 3–16 латинских букв, цифр или _');
+      byId('sidebar-auth-msg').textContent = NICK_RULES_MESSAGE;
       return;
     }
-    await persistConfig({ username, accountType: 'offline', licenseToken: '', licenseUuid: '' });
-    renderProfile();
-    renderShop();
-    flashAuthMessage(`Ник сохранён: ${username}`);
+    byId('sidebar-auth-msg').textContent = '';
+    nickTimer = setTimeout(async () => {
+      await persistConfig({ username, accountType: 'offline' });
+      refreshProfileViews();
+    }, SAVE_DEBOUNCE_MS);
   });
 
-  const loginButton = byId('btn-sidebar-login-license');
-  const passwordInput = byId('sidebar-license-pass');
-  loginButton.addEventListener('click', async () => {
-    const login = byId('sidebar-license-login').value.trim();
-    if (!login || !passwordInput.value) {
-      flashAuthMessage('Введите логин и пароль');
-      return;
+  byId('btn-ms-login').addEventListener('click', startMicrosoftLogin);
+  byId('btn-ms-logout').addEventListener('click', async () => {
+    try {
+      currentConfig = await invoke('ms_logout');
+      accountTab = 'offline';
+      refreshProfileViews();
+    } catch (error) {
+      showError(error);
     }
-    loginButton.disabled = true;
-    loginButton.textContent = 'Подключение...';
-    const result = await invoke('authenticate_ely', { username: login, password: passwordInput.value })
-      .catch((error) => ({ success: false, error: String(error) }));
-    passwordInput.value = '';
-    loginButton.disabled = false;
-    loginButton.textContent = 'Войти через Ely.by';
-    if (!result?.success) {
-      flashAuthMessage(result?.error || 'Не удалось войти');
-      return;
-    }
-    await persistConfig({
-      username: result.username,
-      accountType: 'mojang',
-      licenseLogin: login,
-      licenseToken: result.token,
-      licenseUuid: result.uuid,
-    });
-    renderProfile();
-    renderShop();
-    flashAuthMessage(`Вход выполнен: ${result.username}`);
   });
+  byId('btn-ms-cancel').addEventListener('click', () => {
+    invoke('ms_login_cancel');
+    byId('ms-login-modal').classList.add('hidden');
+  });
+  byId('btn-ms-copy').addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(byId('ms-login-code').textContent);
+      flashAuthMessage('Код скопирован');
+    } catch {
+      flashAuthMessage('Не удалось скопировать, выделите код вручную');
+    }
+  });
+  byId('btn-ms-open').addEventListener('click', () => openUrl(microsoftLoginUrl));
+  tauriEvent?.listen('ms:login-done', ({ payload }) => {
+    currentConfig = payload;
+    accountTab = 'microsoft';
+    byId('ms-login-modal').classList.add('hidden');
+    refreshProfileViews();
+    flashAuthMessage(`Вход выполнен: ${payload.msUsername}`);
+  });
+  tauriEvent?.listen('ms:login-failed', ({ payload }) => {
+    byId('ms-login-modal').classList.add('hidden');
+    showError(payload);
+  });
+}
+
+function refreshProfileViews() {
+  renderProfile();
+  renderShop();
+}
+
+async function selectAccountTab(tab) {
+  accountTab = tab;
+  byId('sidebar-auth-msg').textContent = '';
+  if (tab === 'offline' && isLicensed()) {
+    await persistConfig({ accountType: 'offline' });
+  } else if (tab === 'microsoft' && currentConfig.msUuid && !isLicensed()) {
+    await persistConfig({ accountType: 'microsoft' });
+  }
+  refreshProfileViews();
+}
+
+let microsoftLoginUrl = '';
+
+async function startMicrosoftLogin() {
+  const button = byId('btn-ms-login');
+  button.disabled = true;
+  try {
+    const login = await invoke('ms_login_start');
+    microsoftLoginUrl = login.verificationUri;
+    byId('ms-login-code').textContent = login.userCode;
+    byId('ms-login-modal').classList.remove('hidden');
+    byId('btn-ms-open').focus();
+  } catch (error) {
+    showError(error);
+  } finally {
+    button.disabled = false;
+  }
 }
 
 // --- Запуск игры ---
@@ -676,7 +737,7 @@ function activateElement(target) {
   }
   const buy = target.closest('[data-buy]');
   if (buy) {
-    const nickname = encodeURIComponent(currentConfig.username || 'Player');
+    const nickname = encodeURIComponent(displayName() || 'Player');
     openUrl(`${SHOP_URL}?nickname=${nickname}&item=${encodeURIComponent(buy.dataset.buy)}`);
     return;
   }
@@ -747,6 +808,8 @@ async function start() {
   bindGameEvents();
 
   currentConfig = await invoke('get_config');
+  accountTab = isLicensed() ? 'microsoft' : 'offline';
+  microsoftAvailable = Boolean(await invoke('ms_login_available'));
   bindSettings();
   bindProfile();
   renderProfile();

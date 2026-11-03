@@ -44,6 +44,27 @@ impl BoundPort {
                             Ok(read) => request.extend_from_slice(&buffer[..read]),
                         }
                     }
+                    // Тело POST дочитывается, иначе закрытие соединения может оборвать ответ.
+                    let header_end = request
+                        .windows(4)
+                        .position(|window| window == b"\r\n\r\n")
+                        .unwrap_or(0)
+                        + 4;
+                    let content_length = String::from_utf8_lossy(&request[..header_end])
+                        .lines()
+                        .find_map(|line| {
+                            let lower = line.to_ascii_lowercase();
+                            lower
+                                .strip_prefix("content-length:")
+                                .and_then(|value| value.trim().parse::<usize>().ok())
+                        })
+                        .unwrap_or(0);
+                    while request.len() < header_end + content_length {
+                        match socket.read(&mut buffer).await {
+                            Ok(0) | Err(_) => break,
+                            Ok(read) => request.extend_from_slice(&buffer[..read]),
+                        }
+                    }
                     let text = String::from_utf8_lossy(&request);
                     let target = text.split_whitespace().nth(1).unwrap_or("/");
                     let path = target.split('?').next().unwrap_or(target);

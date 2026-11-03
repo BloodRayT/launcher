@@ -7,7 +7,6 @@ const DEFAULT_BACKEND_URL: &str = "http://fenixcraft.ru/api/launcher";
 /// Адрес из прежних версий: сайт пока работает только по HTTP.
 const OLD_BACKEND_URL: &str = "https://fenixcraft.ru/api/launcher";
 const DEFAULT_JVM_ARGS: &str = "-XX:+UnlockExperimentalVMOptions -XX:+UseG1GC -XX:G1NewSizePercent=20 -XX:G1ReservePercent=20 -XX:MaxGCPauseMillis=50 -XX:G1HeapRegionSize=32M";
-const FAKE_TOKEN_PREFIX: &str = "fc_lic_";
 const MIN_RAM_MB: u32 = 1024;
 const MAX_RAM_MB: u32 = 65536;
 const MIN_WINDOW_SIZE: u32 = 320;
@@ -130,11 +129,9 @@ pub struct LauncherConfig {
     #[serde(default)]
     pub avatar_data: String,
     #[serde(default)]
-    pub license_login: String,
+    pub ms_username: String,
     #[serde(default)]
-    pub license_token: String,
-    #[serde(default)]
-    pub license_uuid: String,
+    pub ms_uuid: String,
 }
 
 impl Default for LauncherConfig {
@@ -154,29 +151,28 @@ impl Default for LauncherConfig {
             backend_url: default_backend_url(),
             custom_servers: default_servers(),
             avatar_data: String::new(),
-            license_login: String::new(),
-            license_token: String::new(),
-            license_uuid: String::new(),
+            ms_username: String::new(),
+            ms_uuid: String::new(),
         }
     }
 }
 
 impl LauncherConfig {
-    /// Приводит значения к допустимым и удаляет следы прежней ненастоящей лицензии.
+    /// Приводит значения к допустимым. Лицензия без сохранённого профиля считается пираткой.
     pub fn normalized(self) -> Self {
-        let had_fake_token = self.license_token.starts_with(FAKE_TOKEN_PREFIX);
-        let account_type = match self.account_type.as_str() {
-            "mojang" if !had_fake_token => "mojang",
-            _ => "offline",
+        let account_type = if self.account_type == "microsoft" && !self.ms_uuid.is_empty() {
+            "microsoft"
+        } else {
+            "offline"
         };
+        let backend_is_default =
+            self.backend_url.trim().is_empty() || self.backend_url == OLD_BACKEND_URL;
         Self {
             account_type: account_type.to_string(),
             ram: self.ram.clamp(MIN_RAM_MB, MAX_RAM_MB),
             width: self.width.max(MIN_WINDOW_SIZE),
             height: self.height.max(MIN_WINDOW_SIZE),
-            backend_url: if self.backend_url.trim().is_empty()
-                || self.backend_url == OLD_BACKEND_URL
-            {
+            backend_url: if backend_is_default {
                 default_backend_url()
             } else {
                 self.backend_url
@@ -185,16 +181,6 @@ impl LauncherConfig {
                 default_servers()
             } else {
                 self.custom_servers
-            },
-            license_token: if had_fake_token {
-                String::new()
-            } else {
-                self.license_token
-            },
-            license_uuid: if had_fake_token {
-                String::new()
-            } else {
-                self.license_uuid
             },
             ..self
         }
@@ -227,7 +213,14 @@ pub fn load_config(path: &Path) -> LauncherConfig {
         return LauncherConfig::default();
     };
     match serde_json::from_str::<LauncherConfig>(&data) {
-        Ok(config) => config.normalized(),
+        Ok(config) => {
+            let config = config.normalized();
+            // Прежние версии хранили здесь токены входа в открытом виде: их нужно убрать с диска.
+            if data.contains("licenseToken") {
+                let _ = save_config(path, config.clone());
+            }
+            config
+        }
         Err(_) => {
             let _ = std::fs::rename(path, path.with_extension("json.corrupt"));
             LauncherConfig::default()
@@ -285,32 +278,41 @@ mod tests {
     }
 
     #[test]
-    fn old_fake_license_is_removed_on_load() {
-        let config = LauncherConfig {
-            account_type: "mojang".to_string(),
-            license_login: "player@example.test".to_string(),
-            license_token: "fc_lic_0123".to_string(),
-            license_uuid: "some-uuid".to_string(),
-            ..LauncherConfig::default()
-        }
-        .normalized();
+    fn old_login_data_is_removed_from_disk() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = config_path(dir.path());
+        std::fs::write(
+            &path,
+            r#"{"username":"Fenix","accountType":"mojang","licenseLogin":"me@example.test","licenseToken":"secret","licenseUuid":"id"}"#,
+        )
+        .unwrap();
 
+        let config = load_config(&path);
+
+        assert_eq!(config.username, "Fenix");
         assert_eq!(config.account_type, "offline");
-        assert!(config.license_token.is_empty());
-        assert!(config.license_uuid.is_empty());
+        let on_disk = std::fs::read_to_string(&path).unwrap();
+        assert!(!on_disk.contains("secret"), "{on_disk}");
+        assert!(!on_disk.contains("me@example.test"), "{on_disk}");
     }
 
     #[test]
-    fn real_session_is_preserved() {
-        let config = LauncherConfig {
-            account_type: "mojang".to_string(),
-            license_token: "real-token".to_string(),
+    fn licensed_account_needs_a_saved_profile() {
+        let without_profile = LauncherConfig {
+            account_type: "microsoft".to_string(),
+            ..LauncherConfig::default()
+        }
+        .normalized();
+        let with_profile = LauncherConfig {
+            account_type: "microsoft".to_string(),
+            ms_username: "RealPlayer".to_string(),
+            ms_uuid: "abc".to_string(),
             ..LauncherConfig::default()
         }
         .normalized();
 
-        assert_eq!(config.account_type, "mojang");
-        assert_eq!(config.license_token, "real-token");
+        assert_eq!(without_profile.account_type, "offline");
+        assert_eq!(with_profile.account_type, "microsoft");
     }
 
     #[test]
