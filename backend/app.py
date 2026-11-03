@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 import os
@@ -8,7 +8,6 @@ import hashlib
 from urllib.parse import quote
 
 import feeds
-from signing import load_signing_key, require_signing_key, sign_body
 
 app = FastAPI(title="FenixCraft Launcher Backend v1.0")
 
@@ -21,11 +20,8 @@ app.add_middleware(
 
 STORAGE_DIR = os.path.join(os.path.dirname(__file__), "storage")
 SERVERS_FILE = os.path.join(os.path.dirname(__file__), "servers.json")
-BASE_PUBLIC_URL = os.getenv("BASE_PUBLIC_URL", "https://fenixcraft.ru/api/launcher")
+BASE_PUBLIC_URL = os.getenv("BASE_PUBLIC_URL", "http://fenixcraft.ru/api/launcher")
 PROFILE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-][A-Za-z0-9._-]{0,63}$")
-SIGNING_KEY = load_signing_key(os.getenv("MANIFEST_SIGNING_KEY"))
-require_signing_key(SIGNING_KEY, os.getenv("REQUIRE_MANIFEST_SIGNING"))
-SIGNATURE_HEADER = "X-Manifest-Signature"
 # Хеш файла пересчитывается только после его изменения: путь -> (mtime_ns, размер, sha256).
 HASH_CACHE: dict = {}
 
@@ -52,7 +48,7 @@ def cached_file_info(filepath: str) -> tuple:
 
 @app.get("/api/launcher/health")
 def get_health():
-    return {"status": "ok", "signed_manifests": SIGNING_KEY is not None}
+    return {"status": "ok"}
 
 @app.get("/api/launcher/news")
 def get_news():
@@ -79,7 +75,6 @@ def get_profile_manifest(profile: str):
     """
     Динамически сканирует папку storage/{profile}/ (mods, resourcepacks, shaderpacks, config)
     и отдает лаунчеру актуальный список файлов с SHA-256 контрольными суммами.
-    Подпись в заголовке покрывает точные байты ответа.
     """
     profile_dir = os.path.join(STORAGE_DIR, profile)
     if not PROFILE_ID_PATTERN.fullmatch(profile) or not os.path.isdir(profile_dir):
@@ -103,12 +98,11 @@ def get_profile_manifest(profile: str):
             })
 
     files_list.sort(key=lambda item: item["path"])
-    body = json.dumps(
-        {"profile": profile, "enforce_mods": True, "files": files_list},
-        ensure_ascii=False,
-    ).encode("utf-8")
-    headers = {SIGNATURE_HEADER: sign_body(SIGNING_KEY, body)} if SIGNING_KEY else None
-    return Response(content=body, media_type="application/json", headers=headers)
+    return {
+        "profile": profile,
+        "enforce_mods": True,
+        "files": files_list
+    }
 
 
 @app.get("/api/launcher/version")

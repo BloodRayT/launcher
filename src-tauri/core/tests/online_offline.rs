@@ -2,7 +2,7 @@
 
 mod common;
 
-use common::{bind_port, Headers, Routes, TestServer};
+use common::{bind_port, Routes, TestServer};
 use fenix_core::backend_sync::{sync_profile, SyncOutcome};
 use fenix_core::config::LauncherConfig;
 use fenix_core::errors::LauncherError;
@@ -301,7 +301,7 @@ async fn failed_neoforge_install_is_reported_instead_of_starting_vanilla() {
 }
 
 #[tokio::test]
-async fn fabric_is_required_and_works_offline_once_cached() {
+async fn fabric_works_from_cache_when_only_its_servers_are_down() {
     let dir = TempDir::new().unwrap();
     let fabric_main = "net.fabricmc.loader.impl.launch.knot.KnotClient";
     let (server, base) = start_mojang(|routes| {
@@ -317,7 +317,11 @@ async fn fabric_is_required_and_works_offline_once_cached() {
         );
     })
     .await;
-    let cfg = config(&dir, "1.0.0-fabric", &base);
+    // Бекенд работает и отдельно от остальных серверов: на запрос манифеста отвечает 404.
+    let backend_port = bind_port().await;
+    let backend = backend_port.base.clone();
+    let backend_server = backend_port.serve(Routes::new());
+    let cfg = config(&dir, "1.0.0-fabric", &backend);
 
     let online = prepare_launch(&context(dir.path(), &base), &cfg)
         .await
@@ -330,13 +334,14 @@ async fn fabric_is_required_and_works_offline_once_cached() {
         .unwrap();
     assert!(offline.args.contains(&fabric_main.to_string()));
 
-    // Без кеша Fabric не подменяется ванилью.
+    // Без сохранённого профиля Fabric не подменяется ванилью.
     std::fs::remove_file(dir.path().join("versions/fabric-cache/1.0.0.json")).unwrap();
     let result = prepare_launch(&context(dir.path(), &base), &cfg).await;
     assert!(
         matches!(result, Err(LauncherError::NeedsInternet { .. })),
         "{result:?}"
     );
+    backend_server.stop().await;
 }
 
 fn backend_routes(base: &str, mod_bytes: &[u8]) -> Routes {
@@ -484,127 +489,8 @@ async fn profiles_keep_their_game_files_apart() {
     server.stop().await;
 }
 
-const TEST_PUBLIC_KEY: &str = "6kpsY+KcUgq+9VB7Ey7F+ZVHdq6+vnuSQh7qaRRG0iw=";
-
-fn test_signing_key() -> ed25519_dalek::SigningKey {
-    ed25519_dalek::SigningKey::from_bytes(&[7u8; 32])
-}
-
-fn signature_header(body: &[u8]) -> String {
-    use base64::Engine;
-    use ed25519_dalek::Signer;
-    let signature = test_signing_key().sign(body).to_bytes();
-    format!(
-        "X-Manifest-Signature: {}",
-        base64::engine::general_purpose::STANDARD.encode(signature)
-    )
-}
-
-fn signed_context(root: &Path, base: &str) -> LaunchContext {
-    let mut ctx = context(root, base);
-    ctx.manifest_public_key = Some(TEST_PUBLIC_KEY.to_string());
-    ctx
-}
-
-fn manifest_route(routes: &Routes) -> Vec<u8> {
-    routes["/manifest/test-profile"].1.clone()
-}
-
 #[tokio::test]
-async fn signed_manifest_is_applied_and_trusted_from_cache() {
-    let dir = TempDir::new().unwrap();
-    let port = bind_port().await;
-    let base = port.base.clone();
-    let routes = backend_routes(&base, b"server mod");
-    let mut headers = Headers::new();
-    headers.insert(
-        "/manifest/test-profile".to_string(),
-        signature_header(&manifest_route(&routes)),
-    );
-    let server = port.serve_with_headers(routes, headers);
-    let ctx = signed_context(dir.path(), &base);
-
-    assert_eq!(
-        sync_profile(&ctx, "test-profile", &base).await,
-        Ok(SyncOutcome::Fresh)
-    );
-    let installed = dir
-        .path()
-        .join("instances/test-profile/mods/server-mod.jar");
-    assert!(installed.exists());
-
-    server.stop().await;
-    assert_eq!(
-        sync_profile(&ctx, "test-profile", &base).await,
-        Ok(SyncOutcome::Cached)
-    );
-
-    // Подменённый на диске манифест не используется.
-    let cache = dir.path().join("profiles/test-profile/manifest.json");
-    let tampered = std::fs::read_to_string(&cache)
-        .unwrap()
-        .replace("server-mod", "evil-mod");
-    std::fs::write(&cache, tampered).unwrap();
-    assert_eq!(
-        sync_profile(&ctx, "test-profile", &base).await,
-        Ok(SyncOutcome::Unavailable)
-    );
-}
-
-#[tokio::test]
-async fn tampered_manifest_changes_nothing() {
-    let dir = TempDir::new().unwrap();
-    let port = bind_port().await;
-    let base = port.base.clone();
-    let routes = backend_routes(&base, b"server mod");
-    let mut headers = Headers::new();
-    headers.insert(
-        "/manifest/test-profile".to_string(),
-        signature_header(b"a different body"),
-    );
-    let server = port.serve_with_headers(routes, headers);
-    let foreign = dir
-        .path()
-        .join("instances/test-profile/mods/player-mod.jar");
-    std::fs::create_dir_all(foreign.parent().unwrap()).unwrap();
-    std::fs::write(&foreign, "player mod").unwrap();
-
-    let result = sync_profile(&signed_context(dir.path(), &base), "test-profile", &base).await;
-
-    assert!(
-        matches!(result, Err(LauncherError::BadManifest(_))),
-        "{result:?}"
-    );
-    assert!(foreign.exists());
-    assert!(!dir
-        .path()
-        .join("instances/test-profile/mods/server-mod.jar")
-        .exists());
-    assert!(!dir
-        .path()
-        .join("profiles/test-profile/manifest.json")
-        .exists());
-    server.stop().await;
-}
-
-#[tokio::test]
-async fn unsigned_manifest_is_rejected_when_a_key_is_embedded() {
-    let dir = TempDir::new().unwrap();
-    let port = bind_port().await;
-    let base = port.base.clone();
-    let server = port.serve(backend_routes(&base, b"server mod"));
-
-    let result = sync_profile(&signed_context(dir.path(), &base), "test-profile", &base).await;
-
-    assert!(
-        matches!(result, Err(LauncherError::BadManifest(_))),
-        "{result:?}"
-    );
-    server.stop().await;
-}
-
-#[tokio::test]
-async fn captive_portal_page_is_not_treated_as_an_attack() {
+async fn captive_portal_page_counts_as_an_unavailable_backend() {
     let dir = TempDir::new().unwrap();
     let port = bind_port().await;
     let base = port.base.clone();
@@ -616,28 +502,23 @@ async fn captive_portal_page_is_not_treated_as_an_attack() {
     );
     let server = port.serve(routes);
 
-    let result = sync_profile(&signed_context(dir.path(), &base), "test-profile", &base).await;
+    let result = sync_profile(&context(dir.path(), &base), "test-profile", &base).await;
 
     assert_eq!(result, Ok(SyncOutcome::Unavailable));
     server.stop().await;
 }
 
 #[tokio::test]
-async fn signed_manifest_of_another_profile_is_rejected() {
+async fn manifest_of_another_profile_is_rejected() {
     let dir = TempDir::new().unwrap();
     let port = bind_port().await;
     let base = port.base.clone();
     let mut routes = backend_routes(&base, b"server mod");
-    let body = manifest_route(&routes);
-    routes.insert("/manifest/other-profile".to_string(), (200, body.clone()));
-    let mut headers = Headers::new();
-    headers.insert(
-        "/manifest/other-profile".to_string(),
-        signature_header(&body),
-    );
-    let server = port.serve_with_headers(routes, headers);
+    let body = routes["/manifest/test-profile"].1.clone();
+    routes.insert("/manifest/other-profile".to_string(), (200, body));
+    let server = port.serve(routes);
 
-    let result = sync_profile(&signed_context(dir.path(), &base), "other-profile", &base).await;
+    let result = sync_profile(&context(dir.path(), &base), "other-profile", &base).await;
 
     assert!(
         matches!(result, Err(LauncherError::BadManifest(_))),
@@ -647,6 +528,50 @@ async fn signed_manifest_of_another_profile_is_rejected() {
         .path()
         .join("instances/other-profile/mods/server-mod.jar")
         .exists());
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn modded_profiles_show_maintenance_while_vanilla_keeps_working() {
+    let dir = TempDir::new().unwrap();
+    let profiles = [
+        "1.0.0-fabric",
+        "1.0.0-iris",
+        "1.0.0-neoforge",
+        "1.0.0-iris-neoforge",
+    ];
+    let (server, base) = start_mojang(|routes| {
+        for profile in profiles {
+            routes.insert(
+                format!("/forbidden/manifest/{profile}"),
+                (403, b"Forbidden".to_vec()),
+            );
+        }
+    })
+    .await;
+    // Выключенный бекенд и ответ 403 от хостинга означают одно и то же.
+    for backend in [DEAD_URL.to_string(), format!("{base}/forbidden")] {
+        for profile in profiles {
+            let result = prepare_launch(
+                &context(dir.path(), &base),
+                &config(&dir, profile, &backend),
+            )
+            .await;
+            assert_eq!(result, Err(LauncherError::BackendMaintenance), "{profile}");
+        }
+    }
+    assert!(
+        !dir.path().join("versions").join(VERSION).exists(),
+        "nothing is downloaded for a blocked profile"
+    );
+
+    let vanilla = prepare_launch(
+        &context(dir.path(), &base),
+        &config(&dir, "1.0.0-vanilla", DEAD_URL),
+    )
+    .await
+    .unwrap();
+    assert!(vanilla.args.contains(&MAIN_CLASS.to_string()));
     server.stop().await;
 }
 

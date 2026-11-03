@@ -1,19 +1,12 @@
-import base64
 from typing import Callable, Iterator
 
 import httpx
 import pytest
-from cryptography.exceptions import InvalidSignature
 from fastapi.testclient import TestClient
 
 import app as backend
 import feeds
-from signing import load_signing_key, require_signing_key, sign_body
 
-# Этот же вектор проверяется в src-tauri/core/src/signing.rs: подпись должна совпадать в обоих языках.
-SEED = "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc="
-INTEROP_BODY = b'{"files":[],"profile":"interop"}'
-INTEROP_SIGNATURE = "JVYo3kKBG2N6VW2EDrkNeZdD6AmndO0+bObqfqfcAerxkS3DofmXPe9EKmeR8Xabu80D/v30+u16MQ8eoxFfDA=="
 MANIFEST_URL = "/api/launcher/manifest/1.21.1-neoforge"
 SECRET_TOKEN = "super-secret-token"
 
@@ -37,58 +30,6 @@ def use_transport(
     monkeypatch.setattr(
         feeds, "http_client", lambda: httpx.Client(transport=httpx.MockTransport(handler))
     )
-
-
-def test_signature_matches_the_shared_test_vector() -> None:
-    assert sign_body(load_signing_key(SEED), INTEROP_BODY) == INTEROP_SIGNATURE
-
-
-@pytest.mark.parametrize("empty", [None, "", "   "])
-def test_empty_key_disables_signing(empty) -> None:
-    assert load_signing_key(empty) is None
-
-
-@pytest.mark.parametrize("bad", ["not base64!", base64.b64encode(b"short").decode()])
-def test_invalid_key_stops_the_server(bad: str) -> None:
-    with pytest.raises(ValueError):
-        load_signing_key(bad)
-
-
-@pytest.mark.parametrize("required", ["true", "1", "YES"])
-def test_required_signing_stops_a_server_without_a_key(required: str) -> None:
-    with pytest.raises(ValueError):
-        require_signing_key(None, required)
-
-
-@pytest.mark.parametrize("required", [None, "", "false"])
-def test_signing_is_optional_unless_required(required) -> None:
-    require_signing_key(None, required)
-    require_signing_key(load_signing_key(SEED), "true")
-
-
-def test_manifest_is_unsigned_without_a_key(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(backend, "SIGNING_KEY", None)
-
-    response = client.get(MANIFEST_URL)
-
-    assert response.status_code == 200
-    assert "x-manifest-signature" not in response.headers
-
-
-def test_manifest_signature_covers_the_exact_body(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    key = load_signing_key(SEED)
-    monkeypatch.setattr(backend, "SIGNING_KEY", key)
-
-    response = client.get(MANIFEST_URL)
-
-    signature = base64.b64decode(response.headers["x-manifest-signature"])
-    key.public_key().verify(signature, response.content)
-    with pytest.raises(InvalidSignature):
-        key.public_key().verify(signature, response.content + b" ")
 
 
 def test_file_hash_is_not_recomputed_for_unchanged_files(

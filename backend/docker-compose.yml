@@ -6,9 +6,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - BASE_PUBLIC_URL=${BASE_PUBLIC_URL:-https://fenixcraft.ru/api/launcher}
-      - MANIFEST_SIGNING_KEY=${MANIFEST_SIGNING_KEY:-}
-      - REQUIRE_MANIFEST_SIGNING=${REQUIRE_MANIFEST_SIGNING:-true}
+      - BASE_PUBLIC_URL=${BASE_PUBLIC_URL:-http://fenixcraft.ru/api/launcher}
       - VK_TOKEN=${VK_TOKEN:-}
       - TWITCH_CLIENT_ID=${TWITCH_CLIENT_ID:-}
       - TWITCH_CLIENT_SECRET=${TWITCH_CLIENT_SECRET:-}

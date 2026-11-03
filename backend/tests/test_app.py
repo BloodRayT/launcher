@@ -55,7 +55,7 @@ def test_every_manifest_url_is_downloadable(client: TestClient) -> None:
 
     assert manifest["files"]
     for item in manifest["files"]:
-        path = item["url"].removeprefix("https://fenixcraft.ru")
+        path = item["url"].removeprefix("http://fenixcraft.ru")
         assert client.get(path).status_code == 200, path
 
 

@@ -12,7 +12,6 @@ use crate::mods::ensure_shader_mods;
 use crate::neoforge::{find_installed_neoforge, install_neoforge};
 use crate::reporter::Reporter;
 use crate::safety::is_valid_username;
-use crate::signing::embedded_public_key;
 use crate::versions::{base_version, load_version_json};
 use crate::Endpoints;
 use serde_json::Value;
@@ -39,7 +38,6 @@ pub struct LaunchContext {
     pub official_mc_dir: PathBuf,
     pub endpoints: Endpoints,
     pub launcher_version: String,
-    pub manifest_public_key: Option<String>,
     pub client: reqwest::Client,
     pub probe_client: reqwest::Client,
     pub reporter: Reporter,
@@ -58,7 +56,6 @@ impl LaunchContext {
             official_mc_dir,
             endpoints,
             launcher_version: launcher_version.into(),
-            manifest_public_key: embedded_public_key(),
             client: download_client()?,
             probe_client: probe_client()?,
             reporter,

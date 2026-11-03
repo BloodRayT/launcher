@@ -18,12 +18,3 @@ if (unique.size !== 1 || unique.has(undefined)) {
   process.exit(1);
 }
 console.log(`Версия ${[...unique][0]} совпадает во всех файлах.`);
-
-// Релиз без ключа молча отключил бы проверку подписи манифестов у всех игроков.
-if (tag) {
-  const key = process.env.FENIX_MANIFEST_PUBLIC_KEY?.trim() ?? '';
-  if (Buffer.from(key, 'base64').length !== 32) {
-    console.error('Задайте переменную репозитория FENIX_MANIFEST_PUBLIC_KEY: см. раздел «Бекенд» в README.');
-    process.exit(1);
-  }
-}

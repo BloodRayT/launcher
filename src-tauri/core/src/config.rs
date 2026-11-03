@@ -3,7 +3,9 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 const CONFIG_FILE: &str = "launcher_config.json";
-const DEFAULT_BACKEND_URL: &str = "https://fenixcraft.ru/api/launcher";
+const DEFAULT_BACKEND_URL: &str = "http://fenixcraft.ru/api/launcher";
+/// Адрес из прежних версий: сайт пока работает только по HTTP.
+const OLD_BACKEND_URL: &str = "https://fenixcraft.ru/api/launcher";
 const DEFAULT_JVM_ARGS: &str = "-XX:+UnlockExperimentalVMOptions -XX:+UseG1GC -XX:G1NewSizePercent=20 -XX:G1ReservePercent=20 -XX:MaxGCPauseMillis=50 -XX:G1HeapRegionSize=32M";
 const FAKE_TOKEN_PREFIX: &str = "fc_lic_";
 const MIN_RAM_MB: u32 = 1024;
@@ -172,7 +174,9 @@ impl LauncherConfig {
             ram: self.ram.clamp(MIN_RAM_MB, MAX_RAM_MB),
             width: self.width.max(MIN_WINDOW_SIZE),
             height: self.height.max(MIN_WINDOW_SIZE),
-            backend_url: if self.backend_url.trim().is_empty() {
+            backend_url: if self.backend_url.trim().is_empty()
+                || self.backend_url == OLD_BACKEND_URL
+            {
                 default_backend_url()
             } else {
                 self.backend_url
@@ -307,6 +311,23 @@ mod tests {
 
         assert_eq!(config.account_type, "mojang");
         assert_eq!(config.license_token, "real-token");
+    }
+
+    #[test]
+    fn old_https_backend_address_moves_to_http() {
+        let old = LauncherConfig {
+            backend_url: OLD_BACKEND_URL.to_string(),
+            ..LauncherConfig::default()
+        }
+        .normalized();
+        let custom = LauncherConfig {
+            backend_url: "https://my.backend/api".to_string(),
+            ..LauncherConfig::default()
+        }
+        .normalized();
+
+        assert_eq!(old.backend_url, DEFAULT_BACKEND_URL);
+        assert_eq!(custom.backend_url, "https://my.backend/api");
     }
 
     #[test]

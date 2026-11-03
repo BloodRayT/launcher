@@ -47,16 +47,13 @@ jobs:
       - name: Install UI build tools
         run: npm ci
 
-      - name: Check versions and the signing key
+      - name: Check versions match the tag
         run: npm run check:versions
-        env:
-          FENIX_MANIFEST_PUBLIC_KEY: ${{ vars.FENIX_MANIFEST_PUBLIC_KEY }}
 
       - name: Build and Release Tauri App
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          FENIX_MANIFEST_PUBLIC_KEY: ${{ vars.FENIX_MANIFEST_PUBLIC_KEY }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'FenixCraft Launcher ${{ github.ref_name }}'

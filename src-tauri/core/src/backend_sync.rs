@@ -3,17 +3,15 @@ use crate::download::{
 };
 use crate::errors::LauncherError;
 use crate::instances::instance_dir;
-use crate::launch::LaunchContext;
+use crate::launch::{loader_of, LaunchContext, Loader};
 use crate::reporter::Reporter;
 use crate::safety::{is_sha256_hex, safe_join};
-use crate::signing::verify_signature;
 use reqwest::{StatusCode, Url};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::path::Path;
 
 const SYNC_CONCURRENCY: usize = 6;
-const SIGNATURE_HEADER: &str = "x-manifest-signature";
 const MAX_MANIFEST_BYTES: usize = 5 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -147,22 +145,7 @@ fn remove_foreign_mods(root: &Path, manifest: &Manifest, reporter: &Reporter) {
     }
 }
 
-/// Если в лаунчере задан ключ, без верной подписи манифест не принимается.
-fn check_signature(
-    ctx: &LaunchContext,
-    body: &[u8],
-    signature: Option<&str>,
-) -> Result<(), LauncherError> {
-    let Some(public_key) = &ctx.manifest_public_key else {
-        return Ok(());
-    };
-    let signature =
-        signature.ok_or_else(|| LauncherError::BadManifest("нет подписи сервера".to_string()))?;
-    verify_signature(public_key, body, signature)
-}
-
-/// Подпись доказывает только происхождение, поэтому манифест должен быть именно от этой сборки.
-/// Иначе подписанный манифест другой сборки можно было бы выдать за нужный.
+/// Манифест должен относиться именно к запрошенной сборке.
 fn check_profile(manifest: &Manifest, profile: &str) -> Result<(), LauncherError> {
     if manifest.profile == profile {
         Ok(())
@@ -174,26 +157,14 @@ fn check_profile(manifest: &Manifest, profile: &str) -> Result<(), LauncherError
     }
 }
 
-fn load_cached_manifest(
-    ctx: &LaunchContext,
-    profile: &str,
-    cache: &Path,
-    signature_cache: &Path,
-) -> Option<Manifest> {
-    let body = std::fs::read(cache).ok()?;
-    let signature = std::fs::read_to_string(signature_cache).ok();
-    check_signature(ctx, &body, signature.as_deref()).ok()?;
-    let manifest: Manifest = serde_json::from_slice(&body).ok()?;
+fn load_cached_manifest(profile: &str, cache: &Path) -> Option<Manifest> {
+    let manifest: Manifest = serde_json::from_slice(&std::fs::read(cache).ok()?).ok()?;
     check_profile(&manifest, profile).ok()?;
     Some(manifest)
 }
 
 enum Fetched {
-    Manifest {
-        manifest: Manifest,
-        body: Vec<u8>,
-        signature: Option<String>,
-    },
+    Manifest { manifest: Manifest, body: Vec<u8> },
     NoProfile,
     Unreachable(String),
 }
@@ -209,28 +180,19 @@ async fn fetch_manifest(ctx: &LaunchContext, url: &str) -> Fetched {
     if !response.status().is_success() {
         return Fetched::Unreachable(format!("сервер ответил {}", response.status().as_u16()));
     }
-    let signature = response
-        .headers()
-        .get(SIGNATURE_HEADER)
-        .and_then(|value| value.to_str().ok())
-        .map(str::to_string);
     let body = match read_limited(response, MAX_MANIFEST_BYTES).await {
         Ok(body) => body,
         Err(reason) => return Fetched::Unreachable(reason),
     };
     // Ответ не в формате манифеста (например, страница провайдера) считается недоступностью.
     match serde_json::from_slice::<Manifest>(&body) {
-        Ok(manifest) => Fetched::Manifest {
-            manifest,
-            body,
-            signature,
-        },
+        Ok(manifest) => Fetched::Manifest { manifest, body },
         Err(err) => Fetched::Unreachable(format!("неверный ответ: {err}")),
     }
 }
 
-/// Приводит файлы сборки к манифесту бекенда. Сбой бекенда не мешает играть:
-/// используется последний проверенный манифест, а посторонние моды в этом случае не удаляются.
+/// Приводит файлы сборки к манифесту бекенда. Без бекенда ванильная сборка использует последний
+/// сохранённый манифест и ничего не удаляет, а сборка с модами не запускается.
 pub async fn sync_profile(
     ctx: &LaunchContext,
     profile: &str,
@@ -243,20 +205,13 @@ pub async fn sync_profile(
         .join("profiles")
         .join(profile)
         .join("manifest.json");
-    let signature_cache = cache.with_extension("sig");
     let url = format!("{base}/manifest/{profile}");
 
     let (manifest, fresh) = match fetch_manifest(ctx, &url).await {
-        Fetched::Manifest {
-            manifest,
-            body,
-            signature,
-        } => {
-            check_signature(ctx, &body, signature.as_deref())?;
+        Fetched::Manifest { manifest, body } => {
             check_profile(&manifest, profile)?;
             validate_manifest(&manifest, &game_dir)?;
             let _ = write_atomic(&cache, &body);
-            let _ = write_atomic(&signature_cache, signature.unwrap_or_default().as_bytes());
             (manifest, true)
         }
         Fetched::NoProfile => {
@@ -268,8 +223,11 @@ pub async fn sync_profile(
         Fetched::Unreachable(reason) => {
             ctx.reporter
                 .log(format!("[Сборка] Сервер сборки недоступен ({reason})."));
-            let Some(manifest) = load_cached_manifest(ctx, profile, &cache, &signature_cache)
-            else {
+            // Сборкам с модами нужен рабочий бекенд: игрок не должен зайти на сервер с устаревшими файлами.
+            if loader_of(profile) != Loader::Vanilla {
+                return Err(LauncherError::BackendMaintenance);
+            }
+            let Some(manifest) = load_cached_manifest(profile, &cache) else {
                 return Ok(SyncOutcome::Unavailable);
             };
             validate_manifest(&manifest, &game_dir)?;
