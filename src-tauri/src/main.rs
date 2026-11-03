@@ -9,6 +9,7 @@ use fenix_core::config::{
 };
 use fenix_core::download::{download_client, probe_client};
 use fenix_core::errors::{LauncherError, UserError};
+use fenix_core::instances::instance_dir;
 use fenix_core::launch::{prepare_launch, run_game, LaunchContext};
 use fenix_core::network::{check_connectivity, Connectivity};
 use fenix_core::reporter::{GameEvent, Reporter};
@@ -141,7 +142,9 @@ fn save_debug_log(
     custom_path: Option<String>,
 ) -> Result<String, String> {
     let root = game_dir();
-    let logs_dir = root.join("logs");
+    let logs_dir = instance_dir(&root, &current_config().selected_version)
+        .map_err(|err| err.to_string())?
+        .join("logs");
     std::fs::create_dir_all(&logs_dir).map_err(|err| err.to_string())?;
     let target = custom_path
         .filter(|path| !path.trim().is_empty())

@@ -67,6 +67,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         fabric_meta: format!("{DEAD_URL}/fabric"),
         modrinth: format!("{DEAD_URL}/modrinth"),
         adoptium: format!("{DEAD_URL}/adoptium"),
+        neoforge_mavens: vec![format!("{DEAD_URL}/neoforge")],
     };
     let offline_config = LauncherConfig {
         backend_url: DEAD_URL.to_string(),

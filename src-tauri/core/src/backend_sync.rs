@@ -1,8 +1,9 @@
 use crate::download::{ensure_files, sha256_file, write_atomic, DownloadItem, Expected};
 use crate::errors::LauncherError;
+use crate::instances::instance_dir;
 use crate::launch::LaunchContext;
 use crate::reporter::Reporter;
-use crate::safety::{is_safe_profile_id, is_sha256_hex, safe_join};
+use crate::safety::{is_sha256_hex, safe_join};
 use reqwest::{StatusCode, Url};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -171,11 +172,7 @@ pub async fn sync_profile(
     profile: &str,
     backend_url: &str,
 ) -> Result<SyncOutcome, LauncherError> {
-    if !is_safe_profile_id(profile) {
-        return Err(LauncherError::BadData(format!(
-            "недопустимое имя сборки «{profile}»"
-        )));
-    }
+    let game_dir = instance_dir(&ctx.root, profile)?;
     let base = backend_url.trim_end_matches('/');
     let cache = ctx
         .root
@@ -186,7 +183,7 @@ pub async fn sync_profile(
 
     let (manifest, fresh) = match fetch_manifest(ctx, &url).await {
         Fetched::Manifest(manifest) => {
-            validate_manifest(&manifest, &ctx.root)?;
+            validate_manifest(&manifest, &game_dir)?;
             if let Ok(json) = serde_json::to_vec_pretty(&manifest) {
                 let _ = write_atomic(&cache, &json);
             }
@@ -207,14 +204,14 @@ pub async fn sync_profile(
             let Some(manifest) = cached else {
                 return Ok(SyncOutcome::Unavailable);
             };
-            validate_manifest(&manifest, &ctx.root)?;
+            validate_manifest(&manifest, &game_dir)?;
             ctx.reporter
                 .log("[Сборка] Проверяем файлы по сохранённому манифесту.");
             (manifest, false)
         }
     };
 
-    let items = plan_downloads(&manifest, &ctx.root, base)?;
+    let items = plan_downloads(&manifest, &game_dir, base)?;
     ensure_files(
         &ctx.client,
         items,
@@ -227,8 +224,8 @@ pub async fn sync_profile(
         return Ok(SyncOutcome::Cached);
     }
 
-    let (root, reporter) = (ctx.root.clone(), ctx.reporter.clone());
-    tokio::task::spawn_blocking(move || remove_foreign_mods(&root, &manifest, &reporter))
+    let reporter = ctx.reporter.clone();
+    tokio::task::spawn_blocking(move || remove_foreign_mods(&game_dir, &manifest, &reporter))
         .await
         .map_err(|e| LauncherError::Io(e.to_string()))?;
     Ok(SyncOutcome::Fresh)

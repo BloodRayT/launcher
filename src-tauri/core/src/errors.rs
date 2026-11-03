@@ -13,8 +13,8 @@ pub enum LauncherError {
     Download { file: String, reason: String },
     #[error("Файл {file} скачан с ошибкой: контрольная сумма не совпала.")]
     Checksum { file: String },
-    #[error("Сборка NeoForge не установлена на этом компьютере.")]
-    NeoForgeMissing,
+    #[error("Не удалось установить NeoForge: {0}.")]
+    NeoForgeInstall(String),
     #[error("Не удалось подготовить Java {major}: {reason}.")]
     Java { major: u32, reason: String },
     #[error("Сервер сборки прислал некорректный манифест: {0}.")]
@@ -54,10 +54,10 @@ impl LauncherError {
                 "Ошибка загрузки",
                 "Нажмите «Играть» ещё раз. Уже скачанные файлы повторно загружаться не будут.",
             ),
-            Self::NeoForgeMissing => (
-                "neoforge_missing",
-                "NeoForge не установлен",
-                "Автоматическая установка появится в следующем обновлении. Пока выберите другую сборку.",
+            Self::NeoForgeInstall(_) => (
+                "neoforge_install_failed",
+                "NeoForge не установился",
+                "Нажмите «Играть» ещё раз. Если ошибка повторится, сохраните журнал из консоли.",
             ),
             Self::Java { .. } => (
                 "java_failed",

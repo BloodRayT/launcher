@@ -5,12 +5,14 @@ use crate::download::{
     download_client, ensure_files, probe_client, write_atomic, DownloadItem, Expected,
 };
 use crate::errors::LauncherError;
+use crate::instances::prepare_instance;
 use crate::java::{ensure_java, hide_console, required_java_major};
 use crate::libraries::{argument_allowed, current_os, extract_natives, LibrarySet};
 use crate::mods::ensure_shader_mods;
+use crate::neoforge::{find_installed_neoforge, install_neoforge};
 use crate::reporter::Reporter;
 use crate::safety::is_valid_username;
-use crate::versions::load_version_json;
+use crate::versions::{base_version, load_version_json};
 use crate::Endpoints;
 use serde_json::Value;
 use std::fs::File;
@@ -236,18 +238,6 @@ async fn prepare_fabric(
         .ok_or_else(|| LauncherError::BadData("у профиля Fabric нет главного класса".to_string()))
 }
 
-fn find_installed_neoforge(versions_dir: &Path) -> Option<(String, PathBuf)> {
-    std::fs::read_dir(versions_dir)
-        .ok()?
-        .flatten()
-        .filter(|entry| entry.path().is_dir())
-        .find_map(|entry| {
-            let name = entry.file_name().to_string_lossy().to_string();
-            let json = entry.path().join(format!("{name}.json"));
-            (name.to_lowercase().contains("neoforge") && json.is_file()).then_some((name, json))
-        })
-}
-
 fn offline_uuid(username: &str) -> String {
     uuid::Uuid::new_v3(
         &uuid::Uuid::NAMESPACE_OID,
@@ -382,20 +372,18 @@ fn custom_jvm_args(config: &LauncherConfig) -> impl Iterator<Item = String> + '_
 }
 
 struct GameArgs<'a> {
+    assets_dir: &'a Path,
     version: &'a str,
     asset_id: &'a str,
     access_token: &'a str,
 }
 
-fn game_args(config: &LauncherConfig, root: &Path, game: &GameArgs<'_>) -> Vec<String> {
+fn game_args(config: &LauncherConfig, game_dir: &Path, game: &GameArgs<'_>) -> Vec<String> {
     let pairs = [
         ("--username", config.username.clone()),
         ("--version", game.version.to_string()),
-        ("--gameDir", root.to_string_lossy().to_string()),
-        (
-            "--assetsDir",
-            root.join("assets").to_string_lossy().to_string(),
-        ),
+        ("--gameDir", game_dir.to_string_lossy().to_string()),
+        ("--assetsDir", game.assets_dir.to_string_lossy().to_string()),
         ("--assetIndex", game.asset_id.to_string()),
         ("--uuid", offline_uuid(&config.username)),
         ("--accessToken", game.access_token.to_string()),
@@ -415,18 +403,34 @@ fn game_args(config: &LauncherConfig, root: &Path, game: &GameArgs<'_>) -> Vec<S
 async fn plan_neoforge(
     ctx: &LaunchContext,
     config: &LauncherConfig,
+    game_dir: &Path,
 ) -> Result<LaunchPlan, LauncherError> {
-    let (neo_id, neo_path) = find_installed_neoforge(&ctx.root.join("versions"))
-        .ok_or(LauncherError::NeoForgeMissing)?;
+    let minecraft = base_version(&config.selected_version)
+        .ok_or_else(|| {
+            LauncherError::BadData(format!(
+                "в сборке «{}» не указана версия игры",
+                config.selected_version
+            ))
+        })?
+        .to_string();
+    let mut vanilla = prepare_vanilla(ctx, &minecraft).await?;
+    let major = required_java_major(&vanilla.json);
+    let java = ensure_java(ctx, &config.java_path, major).await?;
+
+    let versions_dir = ctx.root.join("versions");
+    if find_installed_neoforge(&versions_dir, &minecraft).is_none() {
+        install_neoforge(ctx, &minecraft, &java).await?;
+    }
+    let (neo_id, neo_path) =
+        find_installed_neoforge(&versions_dir, &minecraft).ok_or_else(|| {
+            LauncherError::NeoForgeInstall("установщик не создал файлы версии".to_string())
+        })?;
     let neo_json: Value = serde_json::from_str(&std::fs::read_to_string(&neo_path)?)
         .map_err(|e| LauncherError::BadData(format!("{neo_id}: {e}")))?;
-    let inherits = neo_json["inheritsFrom"]
-        .as_str()
-        .unwrap_or("1.21.1")
-        .to_string();
 
-    let mut vanilla = prepare_vanilla(ctx, &inherits).await?;
-    let client_jar = vanilla.classpath.pop();
+    // Ванильный клиент исключается: NeoForge использует свой пропатченный,
+    // а два клиента на classpath дают конфликт модулей при старте.
+    vanilla.classpath.pop();
     let mut libraries = LibrarySet::seeded(&vanilla.classpath);
     let libs_dir = ctx.root.join("libraries");
     libraries.collect(&neo_json, &libs_dir, current_os());
@@ -440,10 +444,13 @@ async fn plan_neoforge(
     )
     .await?;
     vanilla.classpath.append(&mut libraries.classpath);
-    vanilla.classpath.extend(client_jar);
+    let neo_jar = versions_dir.join(&neo_id).join(format!("{neo_id}.jar"));
+    if neo_jar.is_file() {
+        vanilla.classpath.push(neo_jar);
+    }
 
     if wants_shaders(&config.selected_version) {
-        ensure_shader_mods(ctx, &inherits, "neoforge").await?;
+        ensure_shader_mods(ctx, game_dir, &minecraft, "neoforge").await?;
     }
 
     let classpath = join_classpath(&vanilla.classpath);
@@ -451,7 +458,7 @@ async fn plan_neoforge(
         natives_root: &vanilla.natives_dir,
         libraries: &libs_dir,
         classpath: &classpath,
-        version: &inherits,
+        version: &neo_id,
         launcher_version: &ctx.launcher_version,
     };
     let mut args = standard_jvm_args(config, &vanilla.json, &placeholders);
@@ -472,9 +479,10 @@ async fn plan_neoforge(
     );
     args.extend(game_args(
         config,
-        &ctx.root,
+        game_dir,
         &GameArgs {
-            version: &inherits,
+            assets_dir: &ctx.root.join("assets"),
+            version: &neo_id,
             asset_id: &vanilla.asset_id,
             access_token: "0",
         },
@@ -489,17 +497,17 @@ async fn plan_neoforge(
         }
     }
 
-    let major = required_java_major(&vanilla.json);
     Ok(LaunchPlan {
-        java: ensure_java(ctx, &config.java_path, major).await?,
+        java,
         args,
-        work_dir: ctx.root.clone(),
+        work_dir: game_dir.to_path_buf(),
     })
 }
 
 async fn plan_vanilla_or_fabric(
     ctx: &LaunchContext,
     config: &LauncherConfig,
+    game_dir: &Path,
 ) -> Result<LaunchPlan, LauncherError> {
     let profile = &config.selected_version;
     let mut vanilla = prepare_vanilla(ctx, profile).await?;
@@ -513,7 +521,7 @@ async fn plan_vanilla_or_fabric(
     if loader_of(profile) == Loader::Fabric {
         main_class = prepare_fabric(ctx, &vanilla.version, &mut vanilla.classpath).await?;
         if wants_shaders(profile) {
-            ensure_shader_mods(ctx, &vanilla.version, "fabric").await?;
+            ensure_shader_mods(ctx, game_dir, &vanilla.version, "fabric").await?;
         }
     }
 
@@ -535,8 +543,9 @@ async fn plan_vanilla_or_fabric(
     args.push(main_class);
     args.extend(game_args(
         config,
-        &ctx.root,
+        game_dir,
         &GameArgs {
+            assets_dir: &ctx.root.join("assets"),
             version: &vanilla.version,
             asset_id: &vanilla.asset_id,
             access_token: OFFLINE_ACCESS_TOKEN,
@@ -546,7 +555,7 @@ async fn plan_vanilla_or_fabric(
     Ok(LaunchPlan {
         java,
         args,
-        work_dir: ctx.root.clone(),
+        work_dir: game_dir.to_path_buf(),
     })
 }
 
@@ -623,16 +632,17 @@ pub async fn prepare_launch(
         .log(format!("[Запуск] Подготовка сборки: {profile}"));
     std::fs::create_dir_all(&ctx.root)?;
 
+    let game_dir = prepare_instance(&ctx.root, profile, &ctx.reporter)?;
     let outcome = sync_profile(ctx, profile, &config.backend_url).await?;
     if matches!(outcome, SyncOutcome::Unavailable) {
         ctx.reporter
             .log("[Сборка] Сохранённого манифеста нет, запускаем с файлами на диске.");
     }
-    ensure_default_game_options(&ctx.root)?;
+    ensure_default_game_options(&game_dir)?;
 
     match loader_of(profile) {
-        Loader::NeoForge => plan_neoforge(ctx, config).await,
-        Loader::Vanilla | Loader::Fabric => plan_vanilla_or_fabric(ctx, config).await,
+        Loader::NeoForge => plan_neoforge(ctx, config, &game_dir).await,
+        Loader::Vanilla | Loader::Fabric => plan_vanilla_or_fabric(ctx, config, &game_dir).await,
     }
 }
 
@@ -847,8 +857,9 @@ mod tests {
         };
         let args = game_args(
             &config,
-            Path::new("root"),
+            Path::new("instance"),
             &GameArgs {
+                assets_dir: Path::new("root/assets"),
                 version: "1.21.11",
                 asset_id: "29",
                 access_token: "0",
@@ -859,6 +870,8 @@ mod tests {
             args[at + 1].clone()
         };
 
+        assert_eq!(value_of("--gameDir"), "instance");
+        assert_eq!(value_of("--assetsDir"), "root/assets");
         assert_eq!(value_of("--username"), "Fenix");
         assert_eq!(value_of("--version"), "1.21.11");
         assert_eq!(value_of("--assetIndex"), "29");

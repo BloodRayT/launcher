@@ -108,6 +108,7 @@ fn context(root: &Path, base: &str) -> LaunchContext {
             fabric_meta: format!("{base}/fabric"),
             modrinth: format!("{base}/modrinth"),
             adoptium: format!("{base}/adoptium"),
+            neoforge_mavens: vec![DEAD_URL.to_string(), format!("{base}/neoforge")],
         },
         "9.9.9",
         Reporter::silent(),
@@ -285,14 +286,17 @@ async fn invalid_username_stops_before_any_download() {
 }
 
 #[tokio::test]
-async fn neoforge_without_install_reports_it_instead_of_starting_vanilla() {
+async fn failed_neoforge_install_is_reported_instead_of_starting_vanilla() {
     let dir = TempDir::new().unwrap();
     let (server, base) = start_mojang(|_| {}).await;
     let cfg = config(&dir, "1.0.0-neoforge", &base);
 
     let result = prepare_launch(&context(dir.path(), &base), &cfg).await;
 
-    assert_eq!(result, Err(LauncherError::NeoForgeMissing));
+    assert!(
+        matches!(result, Err(LauncherError::NeoForgeInstall(_))),
+        "{result:?}"
+    );
     server.stop().await;
 }
 
@@ -364,7 +368,8 @@ async fn backend_outage_keeps_files_and_uses_the_saved_manifest() {
     let base = port.base.clone();
     let server = port.serve(backend_routes(&base, mod_bytes));
     let ctx = context(dir.path(), &base);
-    let foreign = dir.path().join("mods").join("player-mod.jar");
+    let instance = dir.path().join("instances").join("test-profile");
+    let foreign = instance.join("mods").join("player-mod.jar");
     std::fs::create_dir_all(foreign.parent().unwrap()).unwrap();
 
     // Свежий манифест применяется, посторонний мод удаляется.
@@ -373,7 +378,7 @@ async fn backend_outage_keeps_files_and_uses_the_saved_manifest() {
         sync_profile(&ctx, "test-profile", &base).await,
         Ok(SyncOutcome::Fresh)
     );
-    assert!(dir.path().join("mods/server-mod.jar").exists());
+    assert!(instance.join("mods/server-mod.jar").exists());
     assert!(!foreign.exists());
 
     // Бекенд упал: файлы сверяются по сохранённому манифесту и ничего не удаляется.
@@ -424,7 +429,57 @@ async fn malicious_manifest_changes_nothing() {
         matches!(result, Err(LauncherError::BadManifest(_))),
         "{result:?}"
     );
-    assert!(!dir.path().join("evil.exe").exists());
-    assert!(!game_dir.join("mods/ok.jar").exists());
+    assert!(!game_dir.join("instances/evil.exe").exists());
+    assert!(!game_dir.join("instances/test-profile/mods/ok.jar").exists());
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn profiles_keep_their_game_files_apart() {
+    let dir = TempDir::new().unwrap();
+    let (server, base) = start_mojang(|routes| {
+        route(
+            routes,
+            "/fabric/versions/loader/1.0.0",
+            json!([{ "loader": { "version": "0.1" } }]).to_string(),
+        );
+        route(
+            routes,
+            "/fabric/versions/loader/1.0.0/0.1/profile/json",
+            json!({ "mainClass": "Knot", "libraries": [] }).to_string(),
+        );
+    })
+    .await;
+
+    let vanilla = prepare_launch(
+        &context(dir.path(), &base),
+        &config(&dir, "1.0.0-vanilla", &base),
+    )
+    .await
+    .unwrap();
+    let fabric = prepare_launch(
+        &context(dir.path(), &base),
+        &config(&dir, "1.0.0-fabric", &base),
+    )
+    .await
+    .unwrap();
+
+    let instances = dir.path().join("instances");
+    assert_eq!(vanilla.work_dir, instances.join("1.0.0-vanilla"));
+    assert_eq!(fabric.work_dir, instances.join("1.0.0-fabric"));
+    assert_eq!(
+        arg_after(&vanilla, "--gameDir"),
+        vanilla.work_dir.to_string_lossy()
+    );
+    assert_eq!(
+        arg_after(&fabric, "--gameDir"),
+        fabric.work_dir.to_string_lossy()
+    );
+    // Ресурсы и клиент общие: второй сборке не нужно скачивать их заново.
+    assert_eq!(
+        arg_after(&vanilla, "--assetsDir"),
+        arg_after(&fabric, "--assetsDir")
+    );
+    assert!(dir.path().join("versions").join(VERSION).exists());
     server.stop().await;
 }
