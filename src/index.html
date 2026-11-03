@@ -79,22 +79,20 @@
           </div>
         </div>
 
-        <select id="sidebar-acc-type" class="w-full bg-[#080d11] border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-emerald-500 cursor-pointer">
-          <option value="offline">Без пароля</option>
-          <option value="mojang">Аккаунт Ely.by</option>
-        </select>
-
-        <!-- Вход без пароля -->
-        <div id="sidebar-offline-box" class="space-y-1.5 w-full">
-          <input id="sidebar-nick-input" type="text" placeholder="Введите ваш никнейм" class="w-full bg-[#080d11] border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500" />
-          <button id="btn-sidebar-save-nick" class="w-full bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-slate-950 font-bold text-xs py-1.5 rounded-lg transition shadow">Сохранить ник</button>
+        <div class="grid grid-cols-2 gap-1 p-1 rounded-lg bg-[#080d11] border border-white/10" role="group" aria-label="Тип входа">
+          <button data-account-tab="offline" class="account-tab py-1 rounded-md text-xs font-semibold transition">Пиратка</button>
+          <button data-account-tab="microsoft" class="account-tab py-1 rounded-md text-xs font-semibold transition">Лицензия</button>
         </div>
 
-        <!-- Вход через Ely.by: пароль уходит только на authserver.ely.by -->
+        <!-- Пиратка: ник применяется сразу -->
+        <div id="sidebar-offline-box" class="space-y-1.5 w-full">
+          <input id="sidebar-nick-input" type="text" maxlength="16" placeholder="Введите ваш никнейм" aria-label="Никнейм" class="w-full bg-[#080d11] border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500" />
+        </div>
+
+        <!-- Лицензия: вход через Microsoft -->
         <div id="sidebar-license-box" class="space-y-1.5 w-full hidden">
-          <input id="sidebar-license-login" type="text" placeholder="Логин или email Ely.by" class="w-full bg-[#080d11] border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500" />
-          <input id="sidebar-license-pass" type="password" placeholder="Пароль Ely.by" class="w-full bg-[#080d11] border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500" />
-          <button id="btn-sidebar-login-license" class="w-full bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-slate-950 font-bold text-xs py-1.5 rounded-lg transition shadow">Войти через Ely.by</button>
+          <button id="btn-ms-login" class="w-full bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-slate-950 font-bold text-xs py-1.5 rounded-lg transition shadow disabled:opacity-50">Войти через Microsoft</button>
+          <button id="btn-ms-logout" class="hidden w-full bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs py-1.5 rounded-lg transition">Выйти из аккаунта</button>
         </div>
 
         <div id="sidebar-auth-msg" class="text-[10px] text-center text-slate-400 truncate min-h-[14px]"></div>
@@ -365,6 +363,20 @@
       <div class="flex items-center justify-end space-x-2 pt-2">
         <button id="btn-update-later" class="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white transition">Позже</button>
         <button id="btn-update-now" class="px-5 py-2 text-xs font-bold bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl shadow-lg shadow-emerald-500/20 active:scale-95 transition">Обновить сейчас</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ОКНО ВХОДА MICROSOFT -->
+  <div id="ms-login-modal" role="dialog" aria-modal="true" aria-labelledby="ms-login-title" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div class="glass-card bg-[#0b1219] border border-emerald-500/30 rounded-2xl p-6 max-w-md w-full shadow-2xl space-y-4">
+      <h3 id="ms-login-title" class="text-base font-bold text-white">Вход через Microsoft</h3>
+      <p class="text-sm text-slate-300">Откройте страницу входа и введите этот код. Лаунчер продолжит сам, пароль в нём вводить не нужно.</p>
+      <div id="ms-login-code" class="selectable-console text-center text-3xl font-black tracking-widest text-emerald-400 py-3 rounded-xl bg-black/40 border border-white/5"></div>
+      <div class="flex items-center justify-end space-x-2">
+        <button id="btn-ms-cancel" class="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white transition">Отмена</button>
+        <button id="btn-ms-copy" class="px-4 py-2 text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl transition">Скопировать код</button>
+        <button id="btn-ms-open" class="px-5 py-2 text-xs font-bold bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl active:scale-95 transition">Открыть страницу</button>
       </div>
     </div>
   </div>

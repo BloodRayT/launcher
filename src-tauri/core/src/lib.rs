@@ -1,7 +1,6 @@
 //! Логика лаунчера без зависимости от Tauri: скачивание, проверка файлов, подготовка и запуск игры.
 
 pub mod assets;
-pub mod auth;
 pub mod backend_sync;
 pub mod config;
 pub mod download;
@@ -10,6 +9,7 @@ pub mod instances;
 pub mod java;
 pub mod launch;
 pub mod libraries;
+pub mod microsoft;
 pub mod mods;
 pub mod neoforge;
 pub mod network;

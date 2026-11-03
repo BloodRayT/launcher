@@ -301,7 +301,7 @@ async fn failed_neoforge_install_is_reported_instead_of_starting_vanilla() {
 }
 
 #[tokio::test]
-async fn fabric_is_required_and_works_offline_once_cached() {
+async fn fabric_works_from_cache_when_only_its_servers_are_down() {
     let dir = TempDir::new().unwrap();
     let fabric_main = "net.fabricmc.loader.impl.launch.knot.KnotClient";
     let (server, base) = start_mojang(|routes| {
@@ -317,7 +317,11 @@ async fn fabric_is_required_and_works_offline_once_cached() {
         );
     })
     .await;
-    let cfg = config(&dir, "1.0.0-fabric", &base);
+    // Бекенд работает и отдельно от остальных серверов: на запрос манифеста отвечает 404.
+    let backend_port = bind_port().await;
+    let backend = backend_port.base.clone();
+    let backend_server = backend_port.serve(Routes::new());
+    let cfg = config(&dir, "1.0.0-fabric", &backend);
 
     let online = prepare_launch(&context(dir.path(), &base), &cfg)
         .await
@@ -330,13 +334,14 @@ async fn fabric_is_required_and_works_offline_once_cached() {
         .unwrap();
     assert!(offline.args.contains(&fabric_main.to_string()));
 
-    // Без кеша Fabric не подменяется ванилью.
+    // Без сохранённого профиля Fabric не подменяется ванилью.
     std::fs::remove_file(dir.path().join("versions/fabric-cache/1.0.0.json")).unwrap();
     let result = prepare_launch(&context(dir.path(), &base), &cfg).await;
     assert!(
         matches!(result, Err(LauncherError::NeedsInternet { .. })),
         "{result:?}"
     );
+    backend_server.stop().await;
 }
 
 fn backend_routes(base: &str, mod_bytes: &[u8]) -> Routes {
@@ -481,5 +486,110 @@ async fn profiles_keep_their_game_files_apart() {
         arg_after(&fabric, "--assetsDir")
     );
     assert!(dir.path().join("versions").join(VERSION).exists());
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn captive_portal_page_counts_as_an_unavailable_backend() {
+    let dir = TempDir::new().unwrap();
+    let port = bind_port().await;
+    let base = port.base.clone();
+    let mut routes = Routes::new();
+    route(
+        &mut routes,
+        "/manifest/test-profile",
+        b"<html>login to wifi</html>".to_vec(),
+    );
+    let server = port.serve(routes);
+
+    let result = sync_profile(&context(dir.path(), &base), "test-profile", &base).await;
+
+    assert_eq!(result, Ok(SyncOutcome::Unavailable));
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn manifest_of_another_profile_is_rejected() {
+    let dir = TempDir::new().unwrap();
+    let port = bind_port().await;
+    let base = port.base.clone();
+    let mut routes = backend_routes(&base, b"server mod");
+    let body = routes["/manifest/test-profile"].1.clone();
+    routes.insert("/manifest/other-profile".to_string(), (200, body));
+    let server = port.serve(routes);
+
+    let result = sync_profile(&context(dir.path(), &base), "other-profile", &base).await;
+
+    assert!(
+        matches!(result, Err(LauncherError::BadManifest(_))),
+        "{result:?}"
+    );
+    assert!(!dir
+        .path()
+        .join("instances/other-profile/mods/server-mod.jar")
+        .exists());
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn modded_profiles_show_maintenance_while_vanilla_keeps_working() {
+    let dir = TempDir::new().unwrap();
+    let profiles = [
+        "1.0.0-fabric",
+        "1.0.0-iris",
+        "1.0.0-neoforge",
+        "1.0.0-iris-neoforge",
+    ];
+    let (server, base) = start_mojang(|routes| {
+        for profile in profiles {
+            routes.insert(
+                format!("/forbidden/manifest/{profile}"),
+                (403, b"Forbidden".to_vec()),
+            );
+        }
+    })
+    .await;
+    // Выключенный бекенд и ответ 403 от хостинга означают одно и то же.
+    for backend in [DEAD_URL.to_string(), format!("{base}/forbidden")] {
+        for profile in profiles {
+            let result = prepare_launch(
+                &context(dir.path(), &base),
+                &config(&dir, profile, &backend),
+            )
+            .await;
+            assert_eq!(result, Err(LauncherError::BackendMaintenance), "{profile}");
+        }
+    }
+    assert!(
+        !dir.path().join("versions").join(VERSION).exists(),
+        "nothing is downloaded for a blocked profile"
+    );
+
+    let vanilla = prepare_launch(
+        &context(dir.path(), &base),
+        &config(&dir, "1.0.0-vanilla", DEAD_URL),
+    )
+    .await
+    .unwrap();
+    assert!(vanilla.args.contains(&MAIN_CLASS.to_string()));
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn oversized_manifest_is_not_read_into_memory() {
+    let dir = TempDir::new().unwrap();
+    let port = bind_port().await;
+    let base = port.base.clone();
+    let mut routes = Routes::new();
+    route(
+        &mut routes,
+        "/manifest/test-profile",
+        vec![b' '; 6 * 1024 * 1024],
+    );
+    let server = port.serve(routes);
+
+    let result = sync_profile(&context(dir.path(), &base), "test-profile", &base).await;
+
+    assert_eq!(result, Ok(SyncOutcome::Unavailable));
     server.stop().await;
 }

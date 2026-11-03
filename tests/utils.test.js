@@ -7,7 +7,6 @@ import {
   safeImageUrl,
   safeLinkUrl,
   serverStatusLabel,
-  vkPostToCard,
 } from '../src/utils.js';
 
 test('escapeHtml neutralises markup and attribute breakouts', () => {
@@ -52,16 +51,3 @@ test('connectivityLabel separates no internet from a backend outage', () => {
   assert.equal(connectivityLabel({ internet: true, backend: true }).tone, 'online');
 });
 
-test('vkPostToCard picks the largest photo and cannot inject into the post url', () => {
-  const card = vkPostToCard({
-    id: '5/../evil',
-    owner_id: -100,
-    date: 1700000000,
-    text: 'Заголовок\nТекст',
-    attachments: [{ type: 'photo', photo: { sizes: [{ url: 'https://a/s.jpg' }, { url: 'https://a/l.jpg' }] } }],
-  });
-
-  assert.equal(card.title, 'Заголовок');
-  assert.equal(card.image, 'https://a/l.jpg');
-  assert.equal(card.url, 'https://vk.ru/fenixcraft?w=wall-100_NaN');
-});

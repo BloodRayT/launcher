@@ -38,24 +38,11 @@ export function serverStatusLabel(status) {
 /** @param {{internet: boolean, backend: boolean}} state */
 export function connectivityLabel(state) {
   if (!state.internet) {
-    return { text: 'Без сети', tone: 'offline', hint: 'Установленные сборки запускаются и без интернета.' };
+    return { text: 'Без сети', tone: 'offline', hint: 'Ванильные версии, скачанные ранее, запускаются без интернета. Сборкам с модами нужен сервер сборок.' };
   }
   if (!state.backend) {
-    return { text: 'Сервер сборок недоступен', tone: 'degraded', hint: 'Используем сохранённые файлы сборок.' };
+    return { text: 'Технические работы', tone: 'degraded', hint: 'Сервер сборок недоступен. Сборки с модами временно не запускаются, ванильные версии работают.' };
   }
   return { text: 'Онлайн', tone: 'online', hint: 'Интернет и сервер сборок доступны.' };
 }
 
-/** Приводит пост из API ВКонтакте к формату карточки новости. */
-export function vkPostToCard(post) {
-  const photo = post.attachments?.find((item) => item.type === 'photo')?.photo?.sizes?.at(-1)?.url;
-  const text = (post.text || 'Новость сообщества FenixCraft').trim();
-  return {
-    tag: 'VK.RU/FENIXCRAFT',
-    title: text.split('\n')[0].substring(0, 55) || 'FenixCraft ВК',
-    text,
-    date: new Date(post.date * 1000).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }),
-    image: photo || '',
-    url: `https://vk.ru/fenixcraft?w=wall${Number(post.owner_id)}_${Number(post.id)}`,
-  };
-}

@@ -332,6 +332,21 @@ pub async fn ensure_files(
     Ok(())
 }
 
+/// Читает ответ не больше указанного размера: чужой сервер не должен исчерпать память лаунчера.
+pub async fn read_limited(
+    mut response: reqwest::Response,
+    limit: usize,
+) -> Result<Vec<u8>, String> {
+    let mut body = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(|e| e.to_string())? {
+        if body.len() + chunk.len() > limit {
+            return Err(format!("ответ больше {limit} байт"));
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(body)
+}
+
 /// Атомарная запись: при сбое на диске остаётся прежний файл, а не обрезанный.
 pub fn write_atomic(path: &Path, contents: &[u8]) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {

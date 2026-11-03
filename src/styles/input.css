@@ -74,6 +74,15 @@ input:focus-visible,
   font-weight: 700;
 }
 
+.account-tab {
+  color: #94a3b8;
+}
+
+.account-tab[aria-pressed='true'] {
+  background: #10b981;
+  color: #020617;
+}
+
 .selectable-console {
   user-select: text !important;
   -webkit-user-select: text !important;

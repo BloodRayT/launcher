@@ -5,7 +5,7 @@
 //! Скачивает игру, повторяет подготовку с недоступной сетью и запускает Minecraft на указанное время.
 
 use fenix_core::config::LauncherConfig;
-use fenix_core::launch::{prepare_launch, LaunchContext};
+use fenix_core::launch::{loader_of, prepare_launch, LaunchContext, Loader};
 use fenix_core::reporter::{GameEvent, Reporter};
 use fenix_core::Endpoints;
 use std::path::PathBuf;
@@ -42,6 +42,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         username: "Fenix_Smoke".to_string(),
         selected_version: profile,
         ram: 2048,
+        // Сборкам с модами нужен рабочий бекенд, адрес можно указать для локальной проверки.
+        backend_url: std::env::var("SMOKE_BACKEND_URL")
+            .unwrap_or_else(|_| LauncherConfig::default().backend_url),
         ..LauncherConfig::default()
     };
     let official = root.join("no-official-launcher");
@@ -70,7 +73,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         neoforge_mavens: vec![format!("{DEAD_URL}/neoforge")],
     };
     let offline_config = LauncherConfig {
-        backend_url: DEAD_URL.to_string(),
+        backend_url: if loader_of(&config.selected_version) == Loader::Vanilla {
+            DEAD_URL.to_string()
+        } else {
+            config.backend_url.clone()
+        },
         ..config.clone()
     };
     let started = Instant::now();
