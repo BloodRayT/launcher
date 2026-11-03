@@ -1,0 +1,8 @@
+node_modules/
+src-tauri/target/
+src-tauri/gen/
+src/styles/tailwind.css
+__pycache__/
+.pytest_cache/
+.venv/
+.env
