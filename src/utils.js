@@ -46,3 +46,43 @@ export function connectivityLabel(state) {
   return { text: 'Онлайн', tone: 'online', hint: 'Интернет и сервер сборок доступны.' };
 }
 
+
+/** Безопасный разбор описания релиза: сначала экранирование, затем только простая разметка. */
+export function renderMarkdown(source) {
+  const inline = (line) => escapeHtml(line)
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/`(.+?)`/g, '<code>$1</code>');
+  const html = [];
+  let inList = false;
+  for (const raw of String(source ?? '').replace(/\r/g, '').split('\n')) {
+    const line = raw.trim();
+    const item = line.match(/^[-*]\s+(.*)$/);
+    if (!item && inList) {
+      html.push('</ul>');
+      inList = false;
+    }
+    if (item) {
+      if (!inList) html.push('<ul>');
+      inList = true;
+      html.push(`<li>${inline(item[1])}</li>`);
+    } else if (line.startsWith('#')) {
+      html.push(`<h4>${inline(line.replace(/^#+\s*/, ''))}</h4>`);
+    } else if (line) {
+      html.push(`<p>${inline(line)}</p>`);
+    }
+  }
+  if (inList) html.push('</ul>');
+  return html.join('');
+}
+
+/** @param {string} iso дата из GitHub @returns {string} дата вида 05.11.2026 */
+export function formatReleaseDate(iso) {
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString('ru-RU');
+}
+
+/** Запасная картинка новости: один и тот же пост всегда получает одну и ту же. */
+export function pickLocalImage(seed, images) {
+  const hash = [...String(seed ?? '')].reduce((sum, char) => (sum * 31 + char.codePointAt(0)) % 9973, 7);
+  return images[hash % images.length];
+}

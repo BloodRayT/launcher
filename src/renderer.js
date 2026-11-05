@@ -1,7 +1,10 @@
 import {
   connectivityLabel,
   escapeHtml,
+  formatReleaseDate,
   isValidUsername,
+  pickLocalImage,
+  renderMarkdown,
   safeImageUrl,
   safeLinkUrl,
   serverStatusLabel,
@@ -11,8 +14,13 @@ const tauriCore = window.__TAURI__?.core;
 const tauriEvent = window.__TAURI__?.event;
 const tauriDialog = window.__TAURI__?.dialog;
 
-const LOCAL_NEWS_IMAGE = 'baner.webp';
-const NEWS_CACHE_KEY = 'fenix.news.v1';
+const LOCAL_NEWS_IMAGES = ['baner.webp', 'background.jpg'];
+const NEWS_CACHE_KEY = 'fenix.news.v2';
+const RELEASES_CACHE_KEY = 'fenix.releases.v1';
+const RELEASES_FETCHED_KEY = 'fenix.releases.fetchedAt';
+const RELEASES_REFRESH_MS = 30 * 60 * 1000;
+const NEWS_CARDS_ON_HOME = 2;
+const TWITCH_CHANNEL = 'bloodrayt';
 const SHOP_URL = 'https://fenixcraft.trademc.org/';
 const TWITCH_URL = 'https://www.twitch.tv/bloodrayt';
 const REFRESH_INTERVAL_MS = 30000;
@@ -37,6 +45,7 @@ const previewResponses = {
   get_servers_status: () => ({}),
   get_vk_news: () => ({ success: false }),
   check_twitch_live: () => ({ live: false }),
+  get_launcher_releases: () => [],
   check_launcher_update: () => ({ updateAvailable: false }),
   ms_login_available: () => false,
   save_launcher_config: (args) => args.newConfig,
@@ -86,9 +95,8 @@ const SHOP_ITEMS = [
 ];
 
 const FALLBACK_NEWS = [
-  { tag: 'VK.RU/FENIXCRAFT', title: 'Сообщество FenixCraft ВКонтакте', text: 'Нажмите на карточку, чтобы открыть официальную стену vk.ru/fenixcraft со всеми новостями и конкурсами!', date: 'Официальная группа', image: '', url: 'https://vk.ru/fenixcraft' },
-  { tag: 'Магазин', tone: 'amber', title: 'Привилегии VIP, Creative, Moder, Admin и Money', text: 'Поддержите развитие сервера и получите уникальные возможности в разделе «Магазин».', date: 'FenixCraft Shop', image: '', url: SHOP_URL },
-  { tag: 'Лаунчер', tone: 'cyan', title: 'Ванильная игра запускается и без интернета', text: 'После первой полной загрузки ванильная версия работает без подключения к сети. Файлы проверяются по контрольным суммам.', date: 'Обновление лаунчера', image: '', url: 'https://vk.ru/fenixcraft' },
+  { tag: 'VK.RU/FENIXCRAFT', title: 'Сообщество FenixCraft ВКонтакте', text: 'Новости появятся здесь, как только лаунчер сможет связаться с ВКонтакте. Все записи и конкурсы есть на стене сообщества.', date: 'Официальная группа', image: '', images: [], url: 'https://vk.ru/fenixcraft' },
+  { tag: 'Магазин', tone: 'amber', title: 'Привилегии VIP, Creative, Moder, Admin и Money', text: 'Поддержите развитие сервера и получите уникальные возможности в разделе «Магазин».', date: 'FenixCraft Shop', image: '', images: [], url: SHOP_URL },
 ];
 
 let currentConfig = {};
@@ -177,63 +185,201 @@ function newsTagClass(post) {
   return NEWS_TAG_CLASSES.get(post.tone) ?? 'bg-emerald-500 text-slate-950';
 }
 
-function renderNews(posts) {
-  byId('news-grid').innerHTML = posts.slice(0, 3).map((post) => `
-    <div role="button" tabindex="0" data-external="${escapeHtml(safeLinkUrl(post.url) || 'https://vk.ru/fenixcraft')}"
-         class="glass-card rounded-xl overflow-hidden flex flex-col justify-between border border-white/5 hover:border-emerald-500/40 transition cursor-pointer">
+let newsPosts = [];
+let releaseNotes = [];
+
+function imageOf(post) {
+  return safeImageUrl(post.image, pickLocalImage(post.title, LOCAL_NEWS_IMAGES));
+}
+
+function newsCard({ attributes, image, tag, tagClass, title, text, date }) {
+  return `
+    <div role="button" tabindex="0" ${attributes}
+         class="glass-card rounded-xl overflow-hidden flex flex-col justify-between hover:border-emerald-400/50 transition cursor-pointer">
       <div class="h-28 relative bg-slate-900">
-        <img src="${escapeHtml(safeImageUrl(post.image, LOCAL_NEWS_IMAGE))}" alt="" loading="lazy" class="news-image w-full h-full object-cover" />
-        <span class="absolute bottom-2 left-2 text-[10px] font-bold px-2.5 py-0.5 rounded-full ${newsTagClass(post)}">${escapeHtml(post.tag || 'VK.RU/FENIXCRAFT')}</span>
+        <img src="${escapeHtml(image)}" alt="" loading="lazy" class="news-image w-full h-full object-cover" />
+        <span class="absolute bottom-2 left-2 text-[10px] font-bold px-2.5 py-0.5 rounded-full ${tagClass}">${escapeHtml(tag)}</span>
       </div>
       <div class="p-3.5 flex-1 flex flex-col justify-between space-y-2">
         <div>
-          <h4 class="text-sm font-bold text-white line-clamp-1">${escapeHtml(post.title || 'Новость FenixCraft')}</h4>
-          <p class="text-xs text-slate-400 mt-1 line-clamp-2">${escapeHtml(post.text)}</p>
+          <h4 class="text-sm font-bold text-white line-clamp-1">${escapeHtml(title)}</h4>
+          <p class="text-xs text-slate-300 mt-1 line-clamp-2">${escapeHtml(text)}</p>
         </div>
-        <div class="text-[11px] text-emerald-400/80 pt-1 flex justify-between items-center">
-          <span>📅 ${escapeHtml(post.date)}</span>
-          <span>Открыть ↗</span>
+        <div class="text-[11px] text-emerald-300 pt-1 flex justify-between items-center">
+          <span>${escapeHtml(date)}</span>
+          <span>Подробнее</span>
         </div>
       </div>
-    </div>
-  `).join('');
+    </div>`;
 }
 
-function readCachedNews() {
+function renderNewsGrid() {
+  const posts = newsPosts.length > 0 ? newsPosts : FALLBACK_NEWS;
+  const latest = releaseNotes[0];
+  const cards = posts.slice(0, NEWS_CARDS_ON_HOME).map((post, index) => newsCard({
+    attributes: `data-open-news="${index}"`,
+    image: imageOf(post),
+    tag: post.tag || 'VK.RU/FENIXCRAFT',
+    tagClass: newsTagClass(post),
+    title: post.title || 'Новость FenixCraft',
+    text: post.text,
+    date: post.date,
+  }));
+  cards.push(newsCard({
+    attributes: 'data-open-updates="true"',
+    image: LOCAL_NEWS_IMAGES[0],
+    tag: 'Лаунчер',
+    tagClass: 'bg-cyan-500 text-slate-950',
+    title: latest ? `Обновление ${latest.version}` : 'Обновления лаунчера',
+    text: latest ? latest.body.replace(/[#*`]/g, '').trim() || latest.name : 'История версий появится, когда лаунчер свяжется с GitHub.',
+    date: latest ? formatReleaseDate(latest.date) : 'GitHub',
+  }));
+  byId('news-grid').innerHTML = cards.join('');
+}
+
+function readCache(key) {
   try {
-    const cached = JSON.parse(localStorage.getItem(NEWS_CACHE_KEY));
-    return Array.isArray(cached) && cached.length > 0 ? cached : null;
+    const cached = JSON.parse(localStorage.getItem(key));
+    return Array.isArray(cached) ? cached : [];
   } catch {
-    return null;
+    return [];
   }
 }
 
-function writeCachedNews(posts) {
+function writeCache(key, value) {
   try {
-    localStorage.setItem(NEWS_CACHE_KEY, JSON.stringify(posts));
+    localStorage.setItem(key, JSON.stringify(value));
   } catch {
-    // Кеш новостей необязателен: без него покажутся карточки по умолчанию.
+    // Кеш необязателен: без него покажутся карточки по умолчанию.
   }
 }
 
-async function fetchNews() {
-  const response = await invoke('get_vk_news');
-  if (!response?.success) return null;
-  if (Array.isArray(response.posts) && response.posts.length > 0) return response.posts;
-  return null;
+function releasesAreFresh() {
+  if (readCache(RELEASES_CACHE_KEY).length === 0) return false;
+  try {
+    return Date.now() - Number(localStorage.getItem(RELEASES_FETCHED_KEY)) < RELEASES_REFRESH_MS;
+  } catch {
+    return false;
+  }
+}
+
+function writeReleasesFetchedAt() {
+  try {
+    localStorage.setItem(RELEASES_FETCHED_KEY, String(Date.now()));
+  } catch {
+    // Без отметки времени история просто запросится ещё раз.
+  }
 }
 
 async function loadNews() {
-  renderNews(readCachedNews() || FALLBACK_NEWS);
-  try {
-    const posts = await fetchNews();
-    if (posts) {
-      writeCachedNews(posts);
-      renderNews(posts);
-    }
-  } catch {
-    // Без сети остаются сохранённые новости.
+  newsPosts = readCache(NEWS_CACHE_KEY);
+  releaseNotes = readCache(RELEASES_CACHE_KEY);
+  renderNewsGrid();
+  const [news, releases] = await Promise.allSettled([
+    invoke('get_vk_news'),
+    // У GitHub строгий лимит запросов без авторизации, поэтому история обновляется редко.
+    releasesAreFresh() ? Promise.resolve(null) : invoke('get_launcher_releases'),
+  ]);
+  if (news.status === 'fulfilled' && news.value?.success && news.value.posts?.length > 0) {
+    newsPosts = news.value.posts;
+    writeCache(NEWS_CACHE_KEY, newsPosts);
   }
+  if (releases.status === 'fulfilled' && releases.value?.length > 0) {
+    releaseNotes = releases.value;
+    writeCache(RELEASES_CACHE_KEY, releaseNotes);
+    writeReleasesFetchedAt();
+  }
+  renderNewsGrid();
+}
+
+// --- Стеклянное окно ---
+
+let glassModalOpener = null;
+
+/** Пока открыто окно, основной интерфейс недоступен и для клавиатуры. */
+function setBackgroundInert(inert) {
+  document.querySelectorAll('body > header, body > .flex-1').forEach((element) => {
+    element.inert = inert;
+  });
+}
+
+function openGlassModal({ title, html, wide = false }) {
+  glassModalOpener = document.activeElement;
+  byId('glass-modal-title').textContent = title;
+  byId('glass-modal-body').innerHTML = html;
+  byId('glass-modal-body').scrollTop = 0;
+  byId('glass-modal-panel').classList.toggle('glass-panel-wide', wide);
+  byId('glass-modal').classList.remove('hidden');
+  setBackgroundInert(true);
+  byId('btn-glass-close').focus();
+}
+
+function closeGlassModal() {
+  if (byId('glass-modal').classList.contains('hidden')) return;
+  byId('glass-modal').classList.add('hidden');
+  setBackgroundInert(false);
+  // Удаление содержимого останавливает плеер и звук трансляции.
+  byId('glass-modal-body').innerHTML = '';
+  glassModalOpener?.focus?.();
+}
+
+function newsArticle(post, index) {
+  const images = (post.images?.length ? post.images : [post.image]).map((url) => safeImageUrl(url, '')).filter(Boolean);
+  const shown = images.length > 0 ? images : [imageOf(post)];
+  const url = safeLinkUrl(post.url);
+  return `
+    <article id="news-post-${index}" class="glass-article">
+      <div class="glass-article-images ${shown.length > 1 ? 'is-gallery' : ''}">
+        ${shown.map((src) => `<img src="${escapeHtml(src)}" alt="" loading="lazy" class="news-image" />`).join('')}
+      </div>
+      <div class="glass-article-meta">
+        <span>${escapeHtml(post.date)}</span>
+        ${url ? `<button data-external="${escapeHtml(url)}" class="glass-link">Открыть в браузере</button>` : ''}
+      </div>
+      <h4 class="glass-article-title">${escapeHtml(post.title)}</h4>
+      <p class="glass-article-text selectable-console">${escapeHtml(post.text)}</p>
+    </article>`;
+}
+
+function openNewsModal(index) {
+  const posts = newsPosts.length > 0 ? newsPosts : FALLBACK_NEWS;
+  openGlassModal({ title: 'Новости FenixCraft', html: posts.map(newsArticle).join('') });
+  byId(`news-post-${index}`)?.scrollIntoView({ block: 'start' });
+}
+
+function openUpdatesModal() {
+  const body = releaseNotes.length > 0
+    ? releaseNotes.map((release) => `
+      <article class="glass-article">
+        <div class="glass-article-meta">
+          <span>${escapeHtml(formatReleaseDate(release.date))}</span>
+          <button data-external="${escapeHtml(safeLinkUrl(release.url) || 'https://github.com/BloodRayT/launcher/releases')}" class="glass-link">Страница релиза</button>
+        </div>
+        <h4 class="glass-article-title">${escapeHtml(release.name)}</h4>
+        <div class="glass-markdown selectable-console">${renderMarkdown(release.body) || '<p>Описание для этой версии не добавлено.</p>'}</div>
+      </article>`).join('')
+    : '<p class="glass-article-text">История обновлений пока недоступна. Проверьте подключение к интернету.</p>';
+  openGlassModal({ title: 'Обновления лаунчера', html: body });
+}
+
+function openTwitchModal() {
+  // Twitch требует указать адрес встраивающей страницы.
+  const parent = encodeURIComponent(location.hostname);
+  openGlassModal({
+    title: 'Трансляция BloodRayT',
+    wide: true,
+    html: `
+      <div class="twitch-layout">
+        <iframe class="twitch-player" title="Плеер Twitch" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen
+                src="https://player.twitch.tv/?channel=${TWITCH_CHANNEL}&parent=${parent}&autoplay=true"></iframe>
+        <iframe class="twitch-chat" title="Чат Twitch"
+                src="https://www.twitch.tv/embed/${TWITCH_CHANNEL}/chat?parent=${parent}&darkpopout"></iframe>
+      </div>
+      <div class="glass-article-meta twitch-footer">
+        <span>Плеер разворачивается на весь экран кнопкой в его правом нижнем углу</span>
+        <button data-external="${TWITCH_URL}" class="glass-link">Открыть в браузере</button>
+      </div>`,
+  });
 }
 
 // --- Серверы ---
@@ -679,9 +825,8 @@ async function updateTwitchStatus() {
   } catch {
     // Статус стрима необязателен.
   }
-  byId('twitch-label').classList.toggle('twitch-live-active', live);
-  byId('twitch-label').textContent = live ? 'Twitch • LIVE' : 'Twitch';
-  byId('twitch-live-dot').classList.toggle('hidden', !live);
+  byId('btn-twitch-nav').classList.toggle('twitch-live-active', live);
+  byId('twitch-live-badge').classList.toggle('hidden', !live);
 }
 
 async function checkForUpdates() {
@@ -744,6 +889,15 @@ function activateElement(target) {
     persistConfig({ selectedServer: server.dataset.serverIp }).then(refreshServers);
     return;
   }
+  const newsCardElement = target.closest('[data-open-news]');
+  if (newsCardElement) {
+    openNewsModal(Number(newsCardElement.dataset.openNews));
+    return;
+  }
+  if (target.closest('[data-open-updates]')) {
+    openUpdatesModal();
+    return;
+  }
   const tabLink = target.closest('[data-open-tab]');
   if (tabLink) {
     switchTab(tabLink.dataset.openTab);
@@ -760,7 +914,11 @@ function activateElement(target) {
 function bindDelegatedActions() {
   document.addEventListener('click', (event) => activateElement(event.target));
   document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape') hideError();
+    if (event.key === 'Escape') {
+      // Закрывается только верхнее окно.
+      if (byId('error-modal').classList.contains('hidden')) closeGlassModal();
+      else hideError();
+    }
     const isRoleButton = event.target.getAttribute?.('role') === 'button';
     if (isRoleButton && (event.key === 'Enter' || event.key === ' ')) {
       event.preventDefault();
@@ -770,8 +928,8 @@ function bindDelegatedActions() {
   // Если картинка новости не загрузилась, показываем локальный баннер.
   document.addEventListener('error', (event) => {
     const image = event.target;
-    if (image.classList?.contains('news-image') && !image.src.endsWith(LOCAL_NEWS_IMAGE)) {
-      image.src = LOCAL_NEWS_IMAGE;
+    if (image.classList?.contains('news-image') && !image.src.endsWith(LOCAL_NEWS_IMAGES[0])) {
+      image.src = LOCAL_NEWS_IMAGES[0];
     }
   }, true);
 
@@ -779,7 +937,15 @@ function bindDelegatedActions() {
     button.addEventListener('click', () => switchTab(button.dataset.tab));
   });
   byId('btn-play').addEventListener('click', startGame);
-  byId('btn-twitch-nav').addEventListener('click', () => openUrl(TWITCH_URL));
+  byId('btn-twitch-nav').addEventListener('click', openTwitchModal);
+  byId('btn-glass-close').addEventListener('click', closeGlassModal);
+  byId('glass-modal').addEventListener('click', (event) => {
+    if (event.target === byId('glass-modal')) closeGlassModal();
+  });
+  // Плеер разворачивается внутри окна, поэтому на весь экран нужно перевести и само окно.
+  document.addEventListener('fullscreenchange', () => {
+    invoke('window_set_fullscreen', { fullscreen: Boolean(document.fullscreenElement) }).catch(() => {});
+  });
   byId('btn-refresh-news').addEventListener('click', loadNews);
   byId('btn-ping-servers').addEventListener('click', refreshServers);
   byId('btn-save-server').addEventListener('click', saveCustomServer);

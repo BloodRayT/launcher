@@ -7,7 +7,7 @@
 </head>
 <body class="h-screen w-screen flex flex-col">
 
-  <header data-tauri-drag-region class="h-11 bg-[#060a0d] border-b border-white/5 flex items-center justify-between px-4 shrink-0">
+  <header data-tauri-drag-region class="h-11 glass-rail border-b border-white/10 flex items-center justify-between px-4 shrink-0">
     <div class="flex items-center space-x-3 pointer-events-none">
       <img src="logo.webp" alt="FenixCraft" class="w-7 h-7 rounded-full object-cover border border-emerald-500/40" />
       <span class="font-bold text-white tracking-wide text-lg">FenixCraft <span id="app-version-badge" class="px-2 py-0.5 text-[11px] font-bold rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"></span>
@@ -33,7 +33,7 @@
   </header>
 
   <div class="flex flex-1 overflow-hidden">
-    <aside class="w-56 bg-[#0a1015] border-r border-white/5 flex flex-col justify-between p-3 shrink-0">
+    <aside class="w-56 glass-rail border-r border-white/10 flex flex-col justify-between p-3 shrink-0">
       <nav class="space-y-1.5 mt-2">
         <button data-tab="home" class="nav-btn active-nav w-full flex items-center space-x-3 px-4 py-2.5 rounded-r-lg text-sm font-medium transition">
           <span class="text-emerald-400">🏠</span> <span>Главная</span>
@@ -45,7 +45,7 @@
             <span id="twitch-icon">📺</span>
             <span id="twitch-label">Twitch</span>
           </div>
-          <span id="twitch-live-dot" class="hidden w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+          <span id="twitch-live-badge" class="hidden twitch-live-badge">LIVE</span>
         </button>
 
         <button data-tab="shop" class="nav-btn w-full flex items-center space-x-3 px-4 py-2.5 rounded-r-lg text-sm font-medium text-slate-400 hover:text-white transition">
@@ -100,7 +100,7 @@
     </aside>
 
     <!-- ЦЕНТРАЛЬНАЯ ОБЛАСТЬ -->
-    <main class="flex-1 overflow-y-auto p-5 space-y-5 bg-[#080d11]">
+    <main class="flex-1 overflow-y-auto p-5 space-y-5">
 
       <!-- ВКЛАДКА: ГЛАВНАЯ -->
       <div id="tab-home" class="space-y-5">
@@ -166,7 +166,7 @@
         <div>
           <div class="flex items-center justify-between mb-3">
             <div class="flex items-center space-x-2">
-              <h2 class="text-lg font-bold text-white">Новости ВКонтакте и Обновления</h2>
+              <h2 class="text-lg font-bold text-white">Новости и обновления лаунчера</h2>
               <span class="text-emerald-400 text-sm">📡</span>
             </div>
             <button id="btn-refresh-news" class="text-xs text-emerald-400 hover:underline">Обновить ленту ↻</button>
@@ -277,21 +277,74 @@
       </div>
 
       <!-- ВКЛАДКА: FAQ И ПРАВИЛА -->
-      <div id="tab-faq" class="hidden space-y-4">
-        <h2 class="text-xl font-bold text-white">FAQ и Стандартные правила FenixCraft</h2>
-        <div class="glass-card p-4 rounded-xl space-y-2">
-          <h3 class="text-emerald-400 font-bold text-sm">1. Общие правила поведения</h3>
-          <p class="text-xs text-slate-300 leading-relaxed">
-            Запрещено использование стороннего ПО, чит-клиентов, X-Ray текстурпаков и модификаций, дающих нечестное преимущество. Лаунчер автоматически проверяет целостность клиента перед каждым запуском.
-          </p>
-        </div>
-        <div class="glass-card p-4 rounded-xl space-y-2">
-          <h3 class="text-emerald-400 font-bold text-sm">2. Часто задаваемые вопросы (FAQ)</h3>
-          <ul class="text-xs text-slate-300 space-y-1.5 list-disc pl-4">
-            <li><b>Как запустить игру?</b> Выберите нужную версию в списке рядом с зеленой кнопкой <code>▶ Играть</code> на главном баннере и нажмите её.</li>
-            <li><b>Как узнать, идет ли стрим?</b> Когда на канале <code>twitch.tv/bloodrayt</code> идет стрим, кнопка <b>Twitch</b> в левом меню начинает мигать зеленым цветом!</li>
+      <div id="tab-faq" class="hidden space-y-5 pb-4">
+        <h2 class="text-xl font-bold text-white">Правила и частые вопросы</h2>
+
+        <section class="glass-card rule-highlight rounded-xl p-5 space-y-3" aria-labelledby="rules-main">
+          <h3 id="rules-main" class="text-base font-bold text-emerald-300">Главное</h3>
+          <ol class="rule-list">
+            <li><strong>Уважайте друг друга.</strong> Оскорбления участников и их родных, травля и провокации запрещены.</li>
+            <li><strong>Играйте честно.</strong> Запрещены читы, X-Ray и любые модификации, дающие нечестное преимущество.</li>
+            <li><strong>Берегите личные данные.</strong> Нельзя распространять персональную информацию о ком-либо.</li>
+            <li><strong>Никакой ненависти и политики.</strong> Запрещены розжиг межнациональной розни, политические и религиозные споры, материалы экстремистского характера.</li>
+            <li><strong>Не выдавайте себя за другого.</strong> Это касается игроков, администрации и известных людей.</li>
+            <li><strong>Руководствуйтесь здравым смыслом.</strong> Правила не описывают всех ситуаций, поэтому неадекватное поведение недопустимо, даже если оно здесь не названо.</li>
+          </ol>
+        </section>
+
+        <section class="glass-card rounded-xl p-5 space-y-3" aria-labelledby="rules-general">
+          <h3 id="rules-general" class="text-sm font-bold text-emerald-300">Общие положения</h3>
+          <ul class="rule-list rule-list-plain">
+            <li>Правила едины для всех участников сервера и сообщества.</li>
+            <li>Правила могут меняться, об изменениях участников обязательно уведомят.</li>
           </ul>
+        </section>
+
+        <div class="grid grid-cols-2 gap-5">
+          <section class="glass-card rounded-xl p-5 space-y-3" aria-labelledby="rules-text">
+            <h3 id="rules-text" class="text-sm font-bold text-emerald-300">Текстовые каналы и чат</h3>
+            <ul class="rule-list rule-list-plain">
+              <li>Запрещены спам и сообщения не по теме канала.</li>
+              <li>Запрещены реклама и самореклама. Ссылки на ВКонтакте и YouTube допускаются, если это не реклама.</li>
+              <li>Нельзя отправлять картинки, анимацию и видео с оскорблениями, национальной символикой, а также сексуальным или провокационным содержанием.</li>
+              <li>Нельзя публиковать видео с громкими и раздражающими звуками.</li>
+              <li>Не упоминайте роли без необходимости и не пишите сотрудникам в личные сообщения по игровым вопросам.</li>
+              <li>Поддерживайте профиль в подобающем виде.</li>
+            </ul>
+          </section>
+
+          <section class="glass-card rounded-xl p-5 space-y-3" aria-labelledby="rules-voice">
+            <h3 id="rules-voice" class="text-sm font-bold text-emerald-300">Голосовые каналы</h3>
+            <ul class="rule-list rule-list-plain">
+              <li>Не включайте микрофон на полную громкость и не издавайте раздражающие звуки.</li>
+              <li>Запрещены программы для изменения или искажения голоса.</li>
+              <li>Не мешайте участникам многократным переподключением к каналу.</li>
+            </ul>
+          </section>
         </div>
+
+        <section class="space-y-2" aria-labelledby="faq-new">
+          <h3 id="faq-new" class="text-base font-bold text-white">Вопросы новичков</h3>
+          <details class="glass-card faq-item"><summary>Как начать играть?</summary><p>Выберите «Пиратка» и введите ник либо войдите через «Лицензия». Затем выберите сборку рядом с кнопкой «Играть» и нажмите её. Первая загрузка занимает несколько минут: лаунчер сам скачает игру и Java.</p></details>
+          <details class="glass-card faq-item"><summary>Какую сборку выбрать?</summary><p>Vanilla 26.3 подходит для основного сервера FenixCraft, NeoForge 1.21.1 — для сервера FenixTech с модами. Варианты с Iris добавляют поддержку шейдеров, но сильнее нагружают компьютер.</p></details>
+          <details class="glass-card faq-item"><summary>Какие требования к нику?</summary><p>От 3 до 16 символов: латинские буквы, цифры и знак подчёркивания. Русские буквы и пробелы использовать нельзя.</p></details>
+          <details class="glass-card faq-item"><summary>Чем отличаются «Пиратка» и «Лицензия»?</summary><p>«Пиратка» запускает игру под введённым ником, на сервере нужно зарегистрироваться и входить паролем. «Лицензия» подходит владельцам официальной игры: вход выполняется через аккаунт Microsoft, а пароль в лаунчер вводить не нужно.</p></details>
+          <details class="glass-card faq-item"><summary>Как войти на сервер в режиме «Пиратка»?</summary><p>При первом входе введите в чате <code>/register пароль пароль</code>, затем при каждом входе — <code>/login пароль</code>. Не используйте пароль от других аккаунтов.</p></details>
+          <details class="glass-card faq-item"><summary>Лаунчер пишет «Технические работы». Что делать?</summary><p>Сервер сборок сейчас недоступен, поэтому сборки с модами временно не запускаются. Ванильная версия при этом работает. Проверьте интернет и попробуйте позже.</p></details>
+          <details class="glass-card faq-item"><summary>Можно ли играть без интернета?</summary><p>Да, в уже скачанную ванильную версию. Сборкам с модами нужен сервер сборок, а для подключения к серверам FenixCraft нужен интернет.</p></details>
+        </section>
+
+        <section class="space-y-2" aria-labelledby="faq-pro">
+          <h3 id="faq-pro" class="text-base font-bold text-white">Для опытных игроков</h3>
+          <details class="glass-card faq-item"><summary>Игра вылетает или не запускается</summary><p>Откройте консоль кнопкой в шапке лаунчера, посмотрите последние строки и сохраните журнал кнопкой «Сохранить Debug-лог». Частые причины: нехватка памяти, устаревший драйвер видеокарты и несовместимый мод. Журнал поможет администрации найти причину.</p></details>
+          <details class="glass-card faq-item"><summary>Сколько памяти выделять?</summary><p>Для ванильной версии обычно хватает 4–6 ГБ, для сборок с модами и шейдерами — 6–8 ГБ. Больше не всегда лучше: оставьте системе хотя бы 4 ГБ. Настройка находится в разделе «Настройки».</p></details>
+          <details class="glass-card faq-item"><summary>Где лежат файлы игры?</summary><p>В Windows это папка <code>%APPDATA%\.fenixcraft</code>. Миры, моды и настройки каждой сборки находятся в <code>instances\название-сборки</code>, а версии, библиотеки и ресурсы общие.</p></details>
+          <details class="glass-card faq-item"><summary>Куда исчезли мои миры и моды после обновления?</summary><p>Миры, скриншоты, ресурс-паки и шейдеры один раз перенесены в ту сборку, которая была выбрана при первом запуске новой версии. Моды из старой папки <code>mods</code> остались на месте: скопируйте нужные в папку сборки.</p></details>
+          <details class="glass-card faq-item"><summary>Лаунчер удалил мой мод из сборки</summary><p>Сборки, файлы которых раздаёт сервер, синхронизируются при запуске: посторонние моды удаляются, чтобы у всех игроков был одинаковый набор. Свои моды можно использовать в сборках, для которых сервер не раздаёт файлы.</p></details>
+          <details class="glass-card faq-item"><summary>Файлы игры повреждены, как проверить?</summary><p>В консоли нажмите «Проверить ассеты»: все ресурсы будут сверены по контрольным суммам. Недостающие и повреждённые файлы докачаются при следующем запуске.</p></details>
+          <details class="glass-card faq-item"><summary>Как указать свою Java или аргументы JVM?</summary><p>В разделе «Настройки» укажите путь к Java и нужные аргументы. Если оставить путь пустым, лаунчер подберёт и скачает подходящую версию сам: Java 25 для 26.3 и Java 21 для 1.21.1.</p></details>
+          <details class="glass-card faq-item"><summary>Войти через Microsoft не получается</summary><p>Для входа нужен аккаунт с купленной Minecraft: Java Edition и профилем Xbox. Если окно сообщает об ошибке, выполните его подсказку. Пока вход недоступен, можно пользоваться режимом «Пиратка».</p></details>
+        </section>
       </div>
 
       <!-- ВКЛАДКА: КОНСОЛЬ ОТЛАДКИ (С ВЫДЕЛЕНИЕМ ТЕКСТА, КОПИРОВАНИЕМ И СОХРАНЕНИЕМ DEBUG-ФАЙЛА) -->
@@ -316,7 +369,7 @@
     </main>
 
     <!-- ПРАВЫЙ САЙДБАР -->
-    <aside class="w-72 bg-[#0a1015] border-l border-white/5 p-4 flex flex-col justify-between shrink-0">
+    <aside class="w-72 glass-rail border-l border-white/10 p-4 flex flex-col justify-between shrink-0">
       <div class="space-y-4">
         <div class="flex items-center justify-between">
           <h3 class="text-sm font-bold text-white">Мои серверы</h3>
@@ -361,6 +414,17 @@
         <button id="btn-update-later" class="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white transition">Позже</button>
         <button id="btn-update-now" class="px-5 py-2 text-xs font-bold bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl shadow-lg shadow-emerald-500/20 active:scale-95 transition">Обновить сейчас</button>
       </div>
+    </div>
+  </div>
+
+  <!-- СТЕКЛЯННОЕ ОКНО: НОВОСТИ, ОБНОВЛЕНИЯ, TWITCH -->
+  <div id="glass-modal" role="dialog" aria-modal="true" aria-labelledby="glass-modal-title" class="glass-backdrop hidden">
+    <div id="glass-modal-panel" class="glass-panel">
+      <header class="glass-panel-header">
+        <h3 id="glass-modal-title"></h3>
+        <button id="btn-glass-close" class="glass-close" aria-label="Закрыть" title="Закрыть">✕</button>
+      </header>
+      <div id="glass-modal-body" class="glass-panel-body"></div>
     </div>
   </div>
 

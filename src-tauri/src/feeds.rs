@@ -1,5 +1,8 @@
 use fenix_core::config::{config_path, game_dir, load_config};
 use fenix_core::download::{probe_client, read_limited};
+use fenix_core::network::{is_twitch_live, twitch_preview_url};
+use fenix_core::news::{fetch_community_news, COMMUNITY_WIDGET_URL};
+use fenix_core::updater::{fetch_release_notes, ReleaseNote};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -7,7 +10,7 @@ use std::net::{TcpStream, ToSocketAddrs};
 use std::time::Duration;
 
 const PING_TIMEOUT: Duration = Duration::from_millis(2000);
-const VK_POST_COUNT: usize = 6;
+const TWITCH_CHANNEL: &str = "bloodrayt";
 const MAX_FEED_BYTES: usize = 1024 * 1024;
 
 fn current_backend_url() -> String {
@@ -95,15 +98,17 @@ pub async fn get_servers_status(servers: Vec<ServerItem>) -> HashMap<String, Ser
     statuses
 }
 
-/// Статус стрима приходит с бекенда, потому что данные приложения Twitch хранятся на сервере.
+/// Статус эфира определяется без ключей, поэтому не зависит от бекенда.
 #[tauri::command]
 pub async fn check_twitch_live() -> serde_json::Value {
-    let Ok(client) = probe_client() else {
-        return serde_json::json!({ "live": false });
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(Duration::from_secs(8))
+        .build();
+    let live = match client {
+        Ok(client) => is_twitch_live(&client, &twitch_preview_url(TWITCH_CHANNEL)).await,
+        Err(_) => false,
     };
-    let live = fetch_backend_json(&client, "twitch")
-        .await
-        .is_some_and(|body| body["live"].as_bool() == Some(true));
     serde_json::json!({ "live": live })
 }
 
@@ -120,111 +125,26 @@ async fn fetch_backend_json(client: &reqwest::Client, endpoint: &str) -> Option<
     serde_json::from_slice(&body).ok()
 }
 
-fn strip_html_tags(input: &str) -> String {
-    let mut output = String::new();
-    let mut in_tag = false;
-    for character in input.replace("<br>", "\n").replace("<br/>", "\n").chars() {
-        match character {
-            '<' => in_tag = true,
-            '>' => in_tag = false,
-            other if !in_tag => output.push(other),
-            _ => {}
-        }
-    }
-    output
-        .replace("&quot;", "\"")
-        .replace("&amp;", "&")
-        .replace("&#33;", "!")
-        .replace("&nbsp;", " ")
-        .trim()
-        .to_string()
-}
-
-fn find_image_url(html: &str) -> String {
-    let area = &html[..html.floor_char_boundary(html.len().min(4500))];
-    for prefix in ["https://sun", "https://pp.userapi.com"] {
-        if let Some(position) = area.find(prefix) {
-            let rest = &area[position..];
-            let end = rest.find(['"', '\'', ')', ' ', '&']).unwrap_or(rest.len());
-            if end > 20 {
-                return rest[..end].to_string();
-            }
-        }
-    }
-    String::new()
-}
-
-fn parse_wall_html(html: &str) -> Vec<serde_json::Value> {
-    let marker = if html.contains("wall_post_text") {
-        "wall_post_text"
-    } else {
-        "pi_text"
-    };
-    html.split(marker)
-        .skip(1)
-        .take(VK_POST_COUNT)
-        .enumerate()
-        .filter_map(|(index, block)| {
-            let rest = &block[block.find('>')? + 1..];
-            let text = strip_html_tags(&rest[..rest.find("</div>")?]);
-            if text.chars().count() < 5 {
-                return None;
-            }
-            let title: String = text
-                .lines()
-                .next()
-                .unwrap_or("Новость FenixCraft")
-                .chars()
-                .take(55)
-                .collect();
-            Some(serde_json::json!({
-                "id": index + 1,
-                "tag": "VK.RU/FENIXCRAFT",
-                "title": title,
-                "text": text,
-                "date": "Стена сообщества ВК",
-                "image": find_image_url(rest),
-                "url": "https://vk.ru/fenixcraft"
-            }))
-        })
-        .collect()
-}
-
-async fn news_from_backend(client: &reqwest::Client) -> Option<serde_json::Value> {
-    let body = fetch_backend_json(client, "news").await?;
-    (body["success"].as_bool() == Some(true)).then_some(body)
-}
-
-/// Основной источник новостей — бекенд, где хранится токен VK.
-/// Если он недоступен, лаунчер читает открытую стену сообщества без токена.
+/// Основной источник новостей — публичный виджет сообщества, он работает без бекенда и ключей.
+/// Если VK его не отдал, используется бекенд.
 #[tauri::command]
 pub async fn get_vk_news() -> serde_json::Value {
-    let client = reqwest::Client::builder()
-        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36")
-        .timeout(Duration::from_secs(10))
-        .build()
-        .unwrap_or_default();
-
-    if let Some(news) = news_from_backend(&client).await {
-        return news;
-    }
-
-    for url in ["https://m.vk.ru/fenixcraft", "https://vk.ru/fenixcraft"] {
-        let Ok(response) = client
-            .get(url)
-            .header("Accept-Language", "ru-RU,ru;q=0.9")
-            .send()
-            .await
-        else {
-            continue;
-        };
-        let Ok(html) = response.text().await else {
-            continue;
-        };
-        let posts = parse_wall_html(&html);
+    let Ok(client) = probe_client() else {
+        return serde_json::json!({ "success": false });
+    };
+    if let Ok(posts) = fetch_community_news(&client, COMMUNITY_WIDGET_URL).await {
         if !posts.is_empty() {
-            return serde_json::json!({ "success": true, "source": "public_wall", "posts": posts });
+            return serde_json::json!({ "success": true, "posts": posts });
         }
     }
-    serde_json::json!({ "success": false })
+    match fetch_backend_json(&client, "news").await {
+        Some(body) if body["success"].as_bool() == Some(true) => body,
+        _ => serde_json::json!({ "success": false }),
+    }
+}
+
+#[tauri::command]
+pub async fn get_launcher_releases() -> Result<Vec<ReleaseNote>, String> {
+    let client = probe_client().map_err(|error| error.to_string())?;
+    fetch_release_notes(&client).await
 }

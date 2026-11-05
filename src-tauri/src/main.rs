@@ -75,6 +75,11 @@ fn window_maximize(window: Window) {
 }
 
 #[tauri::command]
+fn window_set_fullscreen(window: Window, fullscreen: bool) {
+    let _ = window.set_fullscreen(fullscreen);
+}
+
+#[tauri::command]
 fn window_close(window: Window) {
     let _ = window.close();
 }
@@ -226,11 +231,13 @@ fn main() {
             window_minimize,
             window_maximize,
             window_close,
+            window_set_fullscreen,
             open_external_url,
             get_connectivity,
             feeds::get_servers_status,
             feeds::get_vk_news,
             feeds::check_twitch_live,
+            feeds::get_launcher_releases,
             verify_assets_command,
             accounts::ms_login_available,
             accounts::ms_login_start,

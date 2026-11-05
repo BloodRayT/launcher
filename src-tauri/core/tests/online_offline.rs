@@ -7,6 +7,8 @@ use fenix_core::backend_sync::{sync_profile, SyncOutcome};
 use fenix_core::config::LauncherConfig;
 use fenix_core::errors::LauncherError;
 use fenix_core::launch::{prepare_launch, run_game, LaunchContext, LaunchPlan};
+use fenix_core::network::is_twitch_live;
+use fenix_core::news::fetch_community_news;
 use fenix_core::reporter::{GameEvent, Reporter};
 use fenix_core::Endpoints;
 use serde_json::json;
@@ -657,5 +659,44 @@ async fn fabric_server_error_is_not_reported_as_missing_internet() {
         matches!(result, Err(LauncherError::Download { .. })),
         "{result:?}"
     );
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn twitch_status_follows_the_preview_response() {
+    let port = bind_port().await;
+    let base = port.base.clone();
+    let mut routes = Routes::new();
+    route(&mut routes, "/live.jpg", b"jpg".to_vec());
+    routes.insert("/offline.jpg".to_string(), (302, Vec::new()));
+    let server = port.serve(routes);
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .unwrap();
+
+    assert!(is_twitch_live(&client, &format!("{base}/live.jpg")).await);
+    assert!(!is_twitch_live(&client, &format!("{base}/offline.jpg")).await);
+    server.stop().await;
+    assert!(!is_twitch_live(&client, &format!("{base}/live.jpg")).await);
+}
+
+#[tokio::test]
+async fn community_news_are_decoded_from_windows_1251() {
+    let page = "<div class=\"wcommunity_post\"><a class=\"wcommunity_post_date\" href=\"/wall-1_5\">сегодня</a>\
+                <div class=\"wall_post_text\">Привет, игроки</div></div>";
+    let (bytes, _, _) = encoding_rs::WINDOWS_1251.encode(page);
+    let port = bind_port().await;
+    let base = port.base.clone();
+    let mut routes = Routes::new();
+    route(&mut routes, "/widget", bytes.to_vec());
+    let server = port.serve(routes);
+
+    let posts = fetch_community_news(&reqwest::Client::new(), &format!("{base}/widget"))
+        .await
+        .unwrap();
+
+    assert_eq!(posts[0].text, "Привет, игроки");
+    assert_eq!(posts[0].date, "сегодня");
     server.stop().await;
 }

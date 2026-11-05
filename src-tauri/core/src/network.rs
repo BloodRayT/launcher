@@ -8,6 +8,20 @@ pub struct Connectivity {
     pub backend: bool,
 }
 
+/// Адрес превью эфира: для идущего стрима сервер отдаёт картинку, иначе перенаправляет на заглушку.
+pub fn twitch_preview_url(channel: &str) -> String {
+    format!("https://static-cdn.jtvnw.net/previews-ttv/live_user_{channel}-320x180.jpg")
+}
+
+/// Определяет эфир без ключей Twitch. Клиенту нельзя следовать перенаправлениям.
+pub async fn is_twitch_live(client: &reqwest::Client, preview_url: &str) -> bool {
+    client
+        .get(preview_url)
+        .send()
+        .await
+        .is_ok_and(|response| response.status() == reqwest::StatusCode::OK)
+}
+
 pub async fn check_connectivity(
     client: &reqwest::Client,
     internet_probe_url: &str,
