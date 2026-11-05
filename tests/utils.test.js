@@ -3,7 +3,10 @@ import { test } from 'node:test';
 import {
   connectivityLabel,
   escapeHtml,
+  formatReleaseDate,
   isValidUsername,
+  pickLocalImage,
+  renderMarkdown,
   safeImageUrl,
   safeLinkUrl,
   serverStatusLabel,
@@ -51,3 +54,26 @@ test('connectivityLabel separates no internet from a backend outage', () => {
   assert.equal(connectivityLabel({ internet: true, backend: true }).tone, 'online');
 });
 
+
+test('renderMarkdown formats simple markup and escapes everything else', () => {
+  const html = renderMarkdown('## Версия 1\n- **важно** и `код`\n- второй\n\nТекст <img src=x onerror=alert(1)>');
+
+  assert.equal(
+    html,
+    '<h4>Версия 1</h4><ul><li><strong>важно</strong> и <code>код</code></li><li>второй</li></ul><p>Текст &lt;img src=x onerror=alert(1)&gt;</p>',
+  );
+  assert.equal(renderMarkdown(null), '');
+});
+
+test('formatReleaseDate tolerates missing dates', () => {
+  assert.equal(formatReleaseDate('2026-11-05T10:00:00Z'), new Date('2026-11-05T10:00:00Z').toLocaleDateString('ru-RU'));
+  assert.equal(formatReleaseDate(''), '');
+});
+
+test('pickLocalImage is stable and always returns a listed image', () => {
+  const images = ['a.webp', 'b.jpg'];
+
+  assert.equal(pickLocalImage('пост', images), pickLocalImage('пост', images));
+  assert.ok(images.includes(pickLocalImage('', images)));
+  assert.ok(images.includes(pickLocalImage(null, images)));
+});

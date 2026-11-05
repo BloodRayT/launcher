@@ -20,7 +20,13 @@
 
 body {
   font-family: 'Inter', sans-serif;
-  background-color: #080d11;
+  background-color: #04100b;
+  background-image:
+    linear-gradient(rgba(3, 10, 7, 0.62), rgba(3, 10, 7, 0.62)),
+    url('../background.jpg');
+  background-size: cover;
+  background-position: center;
+  background-attachment: fixed;
   color: #e2e8f0;
   user-select: none;
   overflow: hidden;
@@ -40,9 +46,281 @@ input:focus-visible,
 }
 
 .glass-card {
-  background: rgba(15, 23, 30, 0.85);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  backdrop-filter: blur(12px);
+  background: rgba(6, 16, 12, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(14px) saturate(140%);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.32);
+}
+
+/* На фоне с яркими зелёными участками серый текст плохо читается. */
+.text-slate-400 {
+  color: #c1ccd6;
+}
+
+.text-slate-500 {
+  color: #a3b0bc;
+}
+
+.glass-rail {
+  background: rgba(3, 11, 8, 0.74);
+  backdrop-filter: blur(16px) saturate(130%);
+}
+
+.glass-panel {
+  position: relative;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0.03) 38%, rgba(255, 255, 255, 0.08) 100%),
+    rgba(5, 18, 13, 0.66);
+  border: 1px solid rgba(255, 255, 255, 0.26);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.42),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.08),
+    0 30px 80px rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(28px) saturate(170%);
+}
+
+.glass-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2.5rem;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(3px);
+}
+
+.glass-backdrop.hidden {
+  display: none;
+}
+
+.glass-panel {
+  display: flex;
+  flex-direction: column;
+  width: min(760px, 100%);
+  max-height: 100%;
+  border-radius: 24px;
+  overflow: hidden;
+}
+
+.glass-panel-wide {
+  width: min(1320px, 100%);
+  height: 100%;
+}
+
+.glass-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.glass-panel-header h3 {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #ffffff;
+}
+
+.glass-close {
+  width: 2rem;
+  height: 2rem;
+  flex-shrink: 0;
+  border-radius: 9999px;
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  transition: background-color 150ms, transform 150ms;
+}
+
+.glass-close:hover {
+  background: rgba(239, 68, 68, 0.75);
+}
+
+.glass-close:active {
+  transform: scale(0.92);
+}
+
+.glass-panel-body {
+  flex: 1;
+  min-height: 0;
+  padding: 1.25rem;
+  overflow-y: auto;
+  scroll-padding-top: 1rem;
+}
+
+.glass-article {
+  padding: 1rem;
+  margin-bottom: 1rem;
+  border-radius: 16px;
+  background: rgba(3, 12, 9, 0.62);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.glass-article:last-child {
+  margin-bottom: 0;
+}
+
+.glass-article-images {
+  display: grid;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.glass-article-images.is-gallery {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.glass-article-images img {
+  width: 100%;
+  max-height: 360px;
+  object-fit: cover;
+  border-radius: 12px;
+}
+
+.glass-article-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 0.72rem;
+  color: #a7f3d0;
+}
+
+.glass-article-title {
+  margin-top: 0.35rem;
+  font-size: 1rem;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.glass-article-text {
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+  line-height: 1.55;
+  color: #e2e8f0;
+  white-space: pre-line;
+}
+
+.glass-link {
+  flex-shrink: 0;
+  color: #6ee7b7;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.glass-link:hover {
+  color: #ffffff;
+}
+
+.glass-markdown {
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+  line-height: 1.55;
+  color: #e2e8f0;
+}
+
+.glass-markdown h4 {
+  margin-top: 0.75rem;
+  font-weight: 700;
+  color: #6ee7b7;
+}
+
+.glass-markdown ul {
+  margin-top: 0.25rem;
+  padding-left: 1.1rem;
+  list-style: disc;
+}
+
+.glass-markdown p {
+  margin-top: 0.35rem;
+}
+
+.glass-markdown code,
+.faq-item code {
+  padding: 0.05rem 0.3rem;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.12);
+  font-size: 0.8em;
+}
+
+.twitch-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 0.75rem;
+  height: calc(100% - 2rem);
+}
+
+.twitch-player,
+.twitch-chat {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: 14px;
+  background: #000000;
+}
+
+.twitch-footer {
+  margin-top: 0.6rem;
+}
+
+.twitch-live-badge {
+  padding: 0.05rem 0.4rem;
+  border-radius: 6px;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  color: #ffffff;
+  background: #dc2626;
+  box-shadow: 0 0 10px rgba(248, 113, 113, 0.9);
+}
+
+.rule-highlight {
+  border-color: rgba(52, 211, 153, 0.5);
+  background: rgba(4, 30, 20, 0.78);
+}
+
+.rule-list {
+  display: grid;
+  gap: 0.55rem;
+  padding-left: 1.2rem;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: #e2e8f0;
+  list-style: decimal;
+}
+
+.rule-list-plain {
+  list-style: disc;
+}
+
+.rule-list strong {
+  color: #ffffff;
+}
+
+.faq-item {
+  border-radius: 12px;
+}
+
+.faq-item summary {
+  padding: 0.7rem 1rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #ffffff;
+  cursor: pointer;
+}
+
+.faq-item summary:hover {
+  color: #6ee7b7;
+}
+
+.faq-item p {
+  padding: 0 1rem 0.8rem;
+  font-size: 0.8rem;
+  line-height: 1.55;
+  color: #cbd5e1;
 }
 
 .hero-banner {
@@ -57,20 +335,21 @@ input:focus-visible,
   color: #ffffff;
 }
 
-@keyframes twitchLiveBlink {
+@keyframes twitchLiveGlow {
   0%, 100% {
-    color: #10b981;
-    text-shadow: 0 0 10px rgba(16, 185, 129, 0.85);
+    color: #ffffff;
+    background-color: rgba(220, 38, 38, 0.42);
+    box-shadow: 0 0 16px rgba(248, 113, 113, 0.75);
   }
   50% {
-    color: #6ee7b7;
-    opacity: 0.45;
-    text-shadow: none;
+    color: #fecaca;
+    background-color: rgba(220, 38, 38, 0.18);
+    box-shadow: 0 0 5px rgba(248, 113, 113, 0.3);
   }
 }
 
 .twitch-live-active {
-  animation: twitchLiveBlink 1.15s infinite ease-in-out;
+  animation: twitchLiveGlow 1.3s infinite ease-in-out;
   font-weight: 700;
 }
 

@@ -17,4 +17,10 @@ if (unique.size !== 1 || unique.has(undefined)) {
   console.error('Версии не совпадают:', versions);
   process.exit(1);
 }
-console.log(`Версия ${[...unique][0]} совпадает во всех файлах.`);
+const version = [...unique][0];
+// Описание релиза показывается игрокам в лаунчере, поэтому оно должно быть про эту версию.
+if (!read('RELEASE_NOTES.md').startsWith(`## Версия ${version}`)) {
+  console.error(`RELEASE_NOTES.md должен начинаться с «## Версия ${version}».`);
+  process.exit(1);
+}
+console.log(`Версия ${version} совпадает во всех файлах.`);

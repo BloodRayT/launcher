@@ -13,6 +13,7 @@ pub mod microsoft;
 pub mod mods;
 pub mod neoforge;
 pub mod network;
+pub mod news;
 pub mod reporter;
 pub mod safety;
 pub mod updater;

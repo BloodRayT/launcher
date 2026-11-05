@@ -6,7 +6,58 @@ use serde_json::Value;
 use std::path::Path;
 
 const LATEST_RELEASE_API: &str = "https://api.github.com/repos/BloodRayT/launcher/releases/latest";
+const RELEASES_API: &str = "https://api.github.com/repos/BloodRayT/launcher/releases?per_page=20";
 pub const RELEASES_PAGE: &str = "https://github.com/BloodRayT/launcher/releases";
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct ReleaseNote {
+    pub version: String,
+    pub name: String,
+    pub date: String,
+    pub body: String,
+    pub url: String,
+}
+
+/// История обновлений: черновики и предварительные версии игрокам не показываются.
+pub fn parse_release_notes(releases: &Value) -> Vec<ReleaseNote> {
+    releases
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|release| {
+            release["draft"].as_bool() != Some(true)
+                && release["prerelease"].as_bool() != Some(true)
+        })
+        .filter_map(|release| {
+            let tag = release["tag_name"].as_str()?;
+            Some(ReleaseNote {
+                version: tag.trim_start_matches('v').to_string(),
+                name: release["name"].as_str().unwrap_or(tag).to_string(),
+                date: release["published_at"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_string(),
+                body: release["body"].as_str().unwrap_or_default().to_string(),
+                url: release["html_url"]
+                    .as_str()
+                    .unwrap_or(RELEASES_PAGE)
+                    .to_string(),
+            })
+        })
+        .collect()
+}
+
+pub async fn fetch_release_notes(client: &reqwest::Client) -> Result<Vec<ReleaseNote>, String> {
+    let response = client
+        .get(RELEASES_API)
+        .send()
+        .await
+        .map_err(|error| error.to_string())?
+        .error_for_status()
+        .map_err(|error| error.to_string())?;
+    let body: Value = response.json().await.map_err(|error| error.to_string())?;
+    Ok(parse_release_notes(&body))
+}
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -116,6 +167,26 @@ mod tests {
                 { "browser_download_url": INSTALLER }
             ]
         })
+    }
+
+    #[test]
+    fn release_notes_skip_drafts_and_prereleases() {
+        let releases = json!([
+            { "tag_name": "v1.2.0", "name": "FenixCraft 1.2.0", "published_at": "2026-11-05T10:00:00Z",
+              "body": "Что нового", "html_url": "https://github.com/x/1.2.0" },
+            { "tag_name": "v1.3.0", "draft": true },
+            { "tag_name": "v1.3.0-beta", "prerelease": true },
+            { "name": "без тега" }
+        ]);
+
+        let notes = parse_release_notes(&releases);
+
+        assert_eq!(notes.len(), 1);
+        assert_eq!(notes[0].version, "1.2.0");
+        assert_eq!(notes[0].name, "FenixCraft 1.2.0");
+        assert_eq!(notes[0].body, "Что нового");
+        assert_eq!(notes[0].date, "2026-11-05T10:00:00Z");
+        assert!(parse_release_notes(&json!({ "message": "rate limit" })).is_empty());
     }
 
     #[test]

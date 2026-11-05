@@ -11,6 +11,8 @@ permissions:
 
 jobs:
   build-tauri:
+    # Релиз собирается только по тегу: из ветки получился бы черновик с неверным именем.
+    if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
     strategy:
@@ -50,6 +52,17 @@ jobs:
       - name: Check versions match the tag
         run: npm run check:versions
 
+      - name: Read release notes
+        id: notes
+        shell: bash
+        run: |
+          {
+            echo 'body<<FENIX_NOTES_END'
+            cat RELEASE_NOTES.md
+            echo
+            echo 'FENIX_NOTES_END'
+          } >> "$GITHUB_OUTPUT"
+
       - name: Build and Release Tauri App
         uses: tauri-apps/tauri-action@v0
         env:
@@ -58,8 +71,7 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'FenixCraft Launcher ${{ github.ref_name }}'
-          releaseBody: |
-            Новая версия лаунчера FenixCraft. Описание изменений добавляется при публикации релиза.
+          releaseBody: ${{ steps.notes.outputs.body }}
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
