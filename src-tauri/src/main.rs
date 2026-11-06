@@ -5,7 +5,8 @@ mod feeds;
 
 use fenix_core::assets::{verify_assets, AssetAudit};
 use fenix_core::config::{
-    config_path, game_dir, load_config, official_minecraft_dir, save_config, LauncherConfig,
+    config_path, files_root, game_dir, load_config, official_minecraft_dir, save_config,
+    LauncherConfig,
 };
 use fenix_core::download::{download_client, probe_client};
 use fenix_core::errors::{LauncherError, UserError};
@@ -60,6 +61,50 @@ fn save_launcher_config(new_config: LauncherConfig) -> Result<LauncherConfig, St
         .map_err(|err| format!("Не удалось сохранить настройки: {err}"))
 }
 
+/// Папка игровых файлов, которую видит игрок в настройках.
+#[tauri::command]
+fn get_game_dir() -> String {
+    files_root(&current_config()).to_string_lossy().to_string()
+}
+
+/// Проверяет, что в папку можно писать, и сохраняет её. Пустой путь возвращает папку по умолчанию.
+/// Уже скачанные файлы не переносятся: новые загрузки пойдут в выбранную папку.
+#[tauri::command]
+fn set_game_dir(path: String) -> Result<LauncherConfig, String> {
+    let chosen = PathBuf::from(path.trim());
+    let is_default = path.trim().is_empty() || chosen == game_dir();
+    if !is_default {
+        if !chosen.is_absolute() {
+            return Err("Укажите полный путь к папке.".to_string());
+        }
+        std::fs::create_dir_all(&chosen)
+            .map_err(|err| format!("Не удалось создать папку: {err}"))?;
+        let probe = chosen.join(".fenixcraft-write-test");
+        std::fs::write(&probe, b"ok")
+            .map_err(|err| format!("В эту папку нельзя записывать файлы: {err}"))?;
+        let _ = std::fs::remove_file(&probe);
+    }
+    let config = LauncherConfig {
+        game_dir_path: if is_default {
+            String::new()
+        } else {
+            chosen.to_string_lossy().to_string()
+        },
+        ..current_config()
+    };
+    save_config(&config_path(&game_dir()), config)
+        .map_err(|err| format!("Не удалось сохранить настройки: {err}"))
+}
+
+#[tauri::command]
+fn open_game_dir(app: AppHandle) -> Result<(), String> {
+    let dir = files_root(&current_config());
+    std::fs::create_dir_all(&dir).map_err(|err| format!("Папка недоступна: {err}"))?;
+    app.opener()
+        .open_path(dir.to_string_lossy(), None::<&str>)
+        .map_err(|err| format!("Не удалось открыть папку: {err}"))
+}
+
 #[tauri::command]
 fn window_minimize(window: Window) {
     let _ = window.minimize();
@@ -112,7 +157,8 @@ async fn get_connectivity() -> Connectivity {
 #[tauri::command]
 async fn verify_assets_command(app: AppHandle) -> Result<AssetAudit, String> {
     let reporter = app_reporter(app);
-    tauri::async_runtime::spawn_blocking(move || verify_assets(&game_dir(), &reporter))
+    let root = files_root(&current_config());
+    tauri::async_runtime::spawn_blocking(move || verify_assets(&root, &reporter))
         .await
         .map_err(|err| err.to_string())
 }
@@ -129,8 +175,9 @@ fn save_debug_log(
     console_text: String,
     custom_path: Option<String>,
 ) -> Result<String, String> {
-    let root = game_dir();
-    let logs_dir = instance_dir(&root, &current_config().selected_version)
+    let config = current_config();
+    let root = files_root(&config);
+    let logs_dir = instance_dir(&root, &config.selected_version)
         .map_err(|err| err.to_string())?
         .join("logs");
     std::fs::create_dir_all(&logs_dir).map_err(|err| err.to_string())?;
@@ -188,8 +235,10 @@ async fn install_launcher_update(app: AppHandle, download_url: String) -> Result
 
 async fn prepare_and_run(reporter: Reporter) -> Result<(), LauncherError> {
     let config = current_config();
+    let root = files_root(&config);
+    std::fs::create_dir_all(&root)?;
     let ctx = LaunchContext::new(
-        game_dir(),
+        root,
         official_minecraft_dir(),
         Endpoints::default(),
         LAUNCHER_VERSION,
@@ -228,6 +277,9 @@ fn main() {
             get_launcher_version,
             get_config,
             save_launcher_config,
+            get_game_dir,
+            set_game_dir,
+            open_game_dir,
             window_minimize,
             window_maximize,
             window_close,

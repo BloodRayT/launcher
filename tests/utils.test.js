@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  changedSlots,
   connectivityLabel,
+  isSkinSize,
+  unseenPostIds,
   escapeHtml,
   formatReleaseDate,
   isValidUsername,
@@ -68,6 +71,27 @@ test('renderMarkdown formats simple markup and escapes everything else', () => {
 test('formatReleaseDate tolerates missing dates', () => {
   assert.equal(formatReleaseDate('2026-11-05T10:00:00Z'), new Date('2026-11-05T10:00:00Z').toLocaleDateString('ru-RU'));
   assert.equal(formatReleaseDate(''), '');
+});
+
+test('changedSlots reports only the cards whose content changed', () => {
+  assert.deepEqual(changedSlots(['post-1', 'release-1.0.15'], ['post-2', 'release-1.0.15']), [0]);
+  assert.deepEqual(changedSlots(['a', 'b'], ['a', 'b']), []);
+  assert.deepEqual(changedSlots([], ['a', 'b']), [0, 1]);
+});
+
+test('unseenPostIds finds posts that appeared since the last check', () => {
+  const posts = [{ id: 30 }, { id: 29 }, { id: 28 }];
+
+  assert.deepEqual(unseenPostIds(posts, [29, 28]), [30]);
+  assert.deepEqual(unseenPostIds(posts, []), [], 'the first load marks nothing as new');
+});
+
+test('isSkinSize accepts only Minecraft skin textures', () => {
+  assert.ok(isSkinSize(64, 64));
+  assert.ok(isSkinSize(64, 32));
+  for (const [width, height] of [[128, 128], [64, 48], [0, 0]]) {
+    assert.equal(isSkinSize(width, height), false, `${width}x${height}`);
+  }
 });
 
 test('pickLocalImage is stable and always returns a listed image', () => {

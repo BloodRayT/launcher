@@ -7,74 +7,90 @@
 </head>
 <body class="h-screen w-screen flex flex-col">
 
-  <header data-tauri-drag-region class="h-11 glass-rail border-b border-white/10 flex items-center justify-between px-4 shrink-0">
-    <div class="flex items-center space-x-3 pointer-events-none">
-      <img src="logo.webp" alt="FenixCraft" class="w-7 h-7 rounded-full object-cover border border-emerald-500/40" />
-      <span class="font-bold text-white tracking-wide text-lg">FenixCraft <span id="app-version-badge" class="px-2 py-0.5 text-[11px] font-bold rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"></span>
-      <button id="btn-update-launcher" class="hidden no-drag pointer-events-auto text-xs font-bold text-slate-950 bg-emerald-400 hover:bg-emerald-300 px-2.5 py-0.5 rounded-full ml-2 animate-bounce transition">
-        ⬇ Обновить лаунчер
-      </button></span>
-      <span class="text-xs text-slate-500 pl-6">Больше, чем просто игра...</span>
+  <!-- Иконки: один набор, одна толщина линии -->
+  <svg xmlns="http://www.w3.org/2000/svg" class="hidden" aria-hidden="true">
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h5v-6h4v6h5V9.5"/></symbol>
+    <symbol id="i-twitch" viewBox="0 0 24 24"><path d="M4 3h17v11l-5 5h-4l-3 3H7v-3H4z"/><path d="M11 8v4M16 8v4"/></symbol>
+    <symbol id="i-discord" viewBox="0 0 24 24"><path d="M8.5 7.5a13 13 0 0 1 7 0"/><path d="M7 17.5c-2-.6-3.5-1.5-4-2.5.3-3.6 1.4-6.8 3.3-9.3A15 15 0 0 1 9.5 4.5l.6 1.2M17 17.5c2-.6 3.5-1.5 4-2.5-.3-3.6-1.4-6.8-3.3-9.3a15 15 0 0 0-3.2-1.2l-.6 1.2"/><path d="M8 16.5c2.7 1.4 5.3 1.4 8 0"/><circle cx="9" cy="12" r="1.2"/><circle cx="15" cy="12" r="1.2"/></symbol>
+    <symbol id="i-gem" viewBox="0 0 24 24"><path d="M6 3h12l4 6-10 12L2 9z"/><path d="M2 9h20M12 21 8 9l4-6 4 6z"/></symbol>
+    <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 4.5A1.5 1.5 0 0 1 5.5 3H20v15H5.5A1.5 1.5 0 0 0 4 19.5z"/><path d="M4 19.5A1.5 1.5 0 0 0 5.5 21H20v-3"/><path d="M8 7.5h8M8 11h6"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
+    <symbol id="i-terminal" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M13 15h4"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4.5v15l12-7.5z" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2.5h8.5A1.5 1.5 0 0 1 21 9v9.5a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z"/></symbol>
+    <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.5-4.5L4 8"/><path d="M4 4v4h4"/><path d="M4 13a8 8 0 0 0 14.5 4.5L20 16"/><path d="M20 20v-4h-4"/></symbol>
+    <symbol id="i-shirt" viewBox="0 0 24 24"><path d="M8 3 3 6l2 5 2-1v11h10V10l2 1 2-5-5-3a4 4 0 0 1-8 0z"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+    <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+    <symbol id="i-square" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="1.5"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+  </svg>
+
+  <!-- Живой фон: медленный дрейф картинки и искры феникса -->
+  <div class="app-backdrop" aria-hidden="true"></div>
+  <canvas id="bg-embers" class="app-embers" aria-hidden="true"></canvas>
+
+  <header data-tauri-drag-region class="app-header glass-rail">
+    <div class="flex items-center gap-3 pointer-events-none">
+      <img src="logo.webp" alt="FenixCraft" class="w-7 h-7 rounded-full object-cover ring-1 ring-emerald-400/40" />
+      <span class="font-extrabold text-white tracking-tight text-[17px]">FenixCraft</span>
+      <span id="app-version-badge" class="version-badge"></span>
+      <button id="btn-update-launcher" class="hidden pointer-events-auto update-chip">Обновить лаунчер</button>
+      <span class="text-xs text-slate-500 pl-3">Больше, чем просто игра</span>
     </div>
 
-    <div class="flex items-center space-x-4 text-slate-400">
-      <div id="network-status" class="flex items-center space-x-1.5 text-[11px] font-medium text-slate-400" role="status">
+    <div class="flex items-center gap-1 text-slate-400">
+      <div id="network-status" class="flex items-center gap-1.5 text-[11px] font-medium text-slate-400 pr-2" role="status">
         <span id="network-dot" class="w-1.5 h-1.5 rounded-full bg-slate-500"></span>
-        <span id="network-text">Проверка сети...</span>
+        <span id="network-text">Проверка сети…</span>
       </div>
-      <button id="btn-toggle-console" data-open-tab="console" title="Консоль отладки" aria-label="Консоль отладки" class="hover:text-emerald-400 transition">📟</button>
-      <button id="btn-open-faq" data-open-tab="faq" title="FAQ и Правила" aria-label="FAQ и правила" class="hover:text-emerald-400 transition">📜</button>
-      <button id="btn-top-settings" data-open-tab="settings" title="Настройки" aria-label="Настройки" class="hover:text-emerald-400 transition">⚙️</button>
-      <div class="h-4 w-[1px] bg-white/10 mx-1"></div>
-      <button id="btn-win-min" aria-label="Свернуть" class="hover:text-white px-1.5">—</button>
-      <button id="btn-win-max" aria-label="Развернуть" class="hover:text-white px-1.5">▢</button>
-      <button id="btn-win-close" aria-label="Закрыть" class="hover:text-red-400 px-1.5">✕</button>
+      <button id="btn-toggle-console" data-open-tab="console" title="Консоль" aria-label="Консоль" class="header-icon"><svg class="icon"><use href="#i-terminal"/></svg></button>
+      <button id="btn-top-settings" data-open-tab="settings" title="Настройки" aria-label="Настройки" class="header-icon"><svg class="icon"><use href="#i-settings"/></svg></button>
+      <div class="h-4 w-px bg-white/10 mx-1.5"></div>
+      <button id="btn-win-min" aria-label="Свернуть" class="header-icon"><svg class="icon"><use href="#i-minus"/></svg></button>
+      <button id="btn-win-max" aria-label="Развернуть" class="header-icon"><svg class="icon icon-sm"><use href="#i-square"/></svg></button>
+      <button id="btn-win-close" aria-label="Закрыть" class="header-icon header-icon-close"><svg class="icon"><use href="#i-close"/></svg></button>
     </div>
   </header>
 
-  <div class="flex flex-1 overflow-hidden">
+  <div id="app-shell" class="flex flex-1 overflow-hidden relative z-10">
     <aside class="w-56 glass-rail border-r border-white/10 flex flex-col justify-between p-3 shrink-0">
-      <nav class="space-y-1.5 mt-2">
-        <button data-tab="home" class="nav-btn active-nav w-full flex items-center space-x-3 px-4 py-2.5 rounded-r-lg text-sm font-medium transition">
-          <span class="text-emerald-400">🏠</span> <span>Главная</span>
+      <nav class="space-y-1 mt-2" aria-label="Разделы">
+        <button data-tab="home" class="nav-btn active-nav">
+          <svg class="icon"><use href="#i-home"/></svg><span>Главная</span>
         </button>
-
-        <button id="btn-twitch-nav"
-                class="w-full flex items-center justify-between px-4 py-2.5 rounded-r-lg text-sm font-medium text-slate-400 hover:text-white transition">
-          <div class="flex items-center space-x-3">
-            <span id="twitch-icon">📺</span>
-            <span id="twitch-label">Twitch</span>
-          </div>
+        <button id="btn-twitch-nav" class="nav-btn">
+          <svg class="icon"><use href="#i-twitch"/></svg><span class="flex-1 text-left">Twitch</span>
           <span id="twitch-live-badge" class="hidden twitch-live-badge">LIVE</span>
         </button>
-
-        <button data-tab="shop" class="nav-btn w-full flex items-center space-x-3 px-4 py-2.5 rounded-r-lg text-sm font-medium text-slate-400 hover:text-white transition">
-          <span>💎</span> <span>Магазин</span>
+        <button data-external="https://discord.gg/UM7CXyN" class="nav-btn" title="Откроется в браузере">
+          <svg class="icon"><use href="#i-discord"/></svg><span class="flex-1 text-left">Discord</span>
+          <svg class="icon icon-xs opacity-50"><use href="#i-arrow"/></svg>
         </button>
-        <button data-tab="faq" class="nav-btn w-full flex items-center space-x-3 px-4 py-2.5 rounded-r-lg text-sm font-medium text-slate-400 hover:text-white transition">
-          <span>📦</span> <span>FAQ и Правила</span>
+        <button data-tab="shop" class="nav-btn">
+          <svg class="icon"><use href="#i-gem"/></svg><span>Магазин</span>
         </button>
-        <button data-tab="servers" class="nav-btn w-full flex items-center space-x-3 px-4 py-2.5 rounded-r-lg text-sm font-medium text-slate-400 hover:text-white transition">
-          <span>🖧</span> <span>Серверы</span>
+        <button data-tab="faq" class="nav-btn">
+          <svg class="icon"><use href="#i-book"/></svg><span>FAQ и правила</span>
         </button>
-        <button data-tab="settings" class="nav-btn w-full flex items-center space-x-3 px-4 py-2.5 rounded-r-lg text-sm font-medium text-slate-400 hover:text-white transition">
-          <span>⚙️</span> <span>Настройки</span>
+        <button data-tab="settings" class="nav-btn">
+          <svg class="icon"><use href="#i-settings"/></svg><span>Настройки</span>
         </button>
       </nav>
 
-                  <!-- БЛОК ПРОФИЛЯ ИГРОКА -->
+      <!-- Профиль игрока -->
       <div class="p-3 rounded-xl glass-card space-y-2.5 w-full overflow-hidden shrink-0">
-        <div class="flex items-center space-x-3">
-          <div class="relative group cursor-pointer shrink-0" id="avatar-container" title="Нажмите для смены аватарки">
-            <img id="sidebar-avatar-img" src="logo.webp" alt="Аватарка" class="w-11 h-11 rounded-full object-cover border-2 border-emerald-500/70 shadow group-hover:brightness-75 transition" />
-            <div class="absolute inset-0 rounded-full bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition text-white text-xs">📷</div>
+        <div class="flex items-center gap-3">
+          <div class="relative group cursor-pointer shrink-0" id="avatar-container" title="Сменить аватарку" role="button" tabindex="0" aria-label="Сменить аватарку">
+            <img id="sidebar-avatar-img" src="logo.webp" alt="" class="w-11 h-11 rounded-full object-cover ring-2 ring-emerald-500/70 group-hover:brightness-75 transition" />
           </div>
           <input type="file" id="avatar-file-input" accept="image/*" class="hidden" />
           <div class="overflow-hidden flex-1 min-w-0">
-            <div id="sidebar-username" class="text-xs font-bold text-white truncate">Новый игрок</div>
-            <div class="flex items-center space-x-1.5 text-[11px] text-emerald-400">
-              <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-              <span id="sidebar-account-type">Без пароля</span>
+            <div id="sidebar-username" class="text-sm font-bold text-white truncate">Новый игрок</div>
+            <div class="flex items-center gap-1.5 text-[11px] text-emerald-400">
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+              <span id="sidebar-account-type">Пиратка</span>
             </div>
           </div>
         </div>
@@ -84,199 +100,143 @@
           <button data-account-tab="microsoft" class="account-tab py-1 rounded-md text-xs font-semibold transition">Лицензия</button>
         </div>
 
-        <!-- Пиратка: ник применяется сразу -->
         <div id="sidebar-offline-box" class="space-y-1.5 w-full">
-          <input id="sidebar-nick-input" type="text" maxlength="16" placeholder="Введите ваш никнейм" aria-label="Никнейм" class="w-full bg-[#080d11] border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500" />
+          <input id="sidebar-nick-input" type="text" maxlength="16" placeholder="Ваш никнейм" aria-label="Никнейм" class="field text-xs py-1.5" />
         </div>
 
-        <!-- Лицензия: вход через Microsoft -->
         <div id="sidebar-license-box" class="space-y-1.5 w-full hidden">
-          <button id="btn-ms-login" class="w-full bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-slate-950 font-bold text-xs py-1.5 rounded-lg transition shadow disabled:opacity-50">Войти через Microsoft</button>
-          <button id="btn-ms-logout" class="hidden w-full bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs py-1.5 rounded-lg transition">Выйти из аккаунта</button>
+          <button id="btn-ms-login" class="btn-primary w-full text-xs py-1.5">Войти через Microsoft</button>
+          <button id="btn-ms-logout" class="hidden btn-ghost w-full text-xs py-1.5">Выйти из аккаунта</button>
         </div>
 
-        <div id="sidebar-auth-msg" class="text-[10px] text-center text-slate-400 truncate min-h-[14px]"></div>
+        <div id="sidebar-auth-msg" class="text-[10px] text-center text-slate-400 truncate min-h-[14px]" aria-live="polite"></div>
       </div>
     </aside>
 
-    <!-- ЦЕНТРАЛЬНАЯ ОБЛАСТЬ -->
-    <main class="flex-1 overflow-y-auto p-5 space-y-5">
+    <main class="flex-1 overflow-y-auto p-5">
 
-      <!-- ВКЛАДКА: ГЛАВНАЯ -->
-      <div id="tab-home" class="space-y-5">
-        <div class="hero-banner relative rounded-2xl overflow-hidden h-64 border border-white/10 flex flex-col justify-end p-7 bg-cover bg-center">
-          <div class="max-w-xl space-y-2">
-            <div class="text-xs uppercase tracking-widest text-emerald-400 font-bold">FenixCraft Official</div>
-            <h1 class="text-3xl font-extrabold text-white tracking-tight">MINECRAFT <span class="text-sm font-normal block text-slate-300">JAVA EDITION</span></h1>
-            <p class="text-base font-semibold text-white pt-1">Исследуй. Строй. Выживай.</p>
-            <p class="text-xs text-slate-300 pb-2">Выберите нужную сборку и нажмите зеленую кнопку «Играть» для запуска!</p>
+      <!-- ГЛАВНАЯ -->
+      <div id="tab-home" class="home-layout">
+        <section class="hero" aria-labelledby="hero-title">
+          <div class="hero-art" aria-hidden="true"></div>
+          <div class="hero-body">
+            <h1 id="hero-title" class="hero-title">Vanilla</h1>
+            <p id="hero-meta" class="hero-meta">Minecraft 26.3</p>
+            <p id="hero-desc" class="hero-desc">Исследуй. Строй. Выживай.</p>
 
-            <div class="flex items-center space-x-3 pt-1">
-              <!-- Единственная главная зеленая кнопка запуска -->
-              <button id="btn-play" class="bg-emerald-500 hover:bg-emerald-400 active:scale-95 transition text-slate-950 font-bold px-8 py-3 rounded-xl flex items-center space-x-2 shadow-lg shadow-emerald-500/25 shrink-0">
-                <span>▶</span> <span id="btn-play-text">Играть</span>
+            <div class="flex items-center gap-2.5 pt-4">
+              <button id="btn-play" class="play-button">
+                <svg class="icon"><use href="#i-play"/></svg><span id="btn-play-text">Играть</span>
               </button>
+              <button data-open-tab="settings" aria-label="Настройки игры" title="Настройки игры" class="hero-icon-btn"><svg class="icon"><use href="#i-sliders"/></svg></button>
+              <button id="btn-hero-folder" aria-label="Открыть папку игры" title="Открыть папку игры" class="hero-icon-btn"><svg class="icon"><use href="#i-folder"/></svg></button>
+            </div>
 
-              <!-- Выпадающий список версий строго в вашем порядке -->
-              <select id="select-version" class="bg-[#111921]/95 border border-white/15 text-white text-sm rounded-xl px-4 py-3 focus:outline-none focus:border-emerald-500">
-                <option value="26.3-vanilla">Vanilla 26.3</option>
-                <option value="26.3-iris">Vanilla 26.3 + Iris (шейдеры)</option>
-                <option value="1.21.1-neoforge">NeoForge 1.21.1</option>
-                <option value="1.21.1-iris-neoforge">NeoForge 1.21.1 + Iris (шейдеры)</option>
-              </select>
-
-              <button id="btn-quick-settings" data-open-tab="settings" aria-label="Настройки" class="bg-[#111921]/90 hover:bg-[#1a2632] border border-white/15 p-3 rounded-xl text-slate-300 shrink-0">🎚️</button>
+            <div id="progress-container" class="hidden progress-panel" role="status" aria-live="polite">
+              <div class="flex justify-between text-xs text-slate-200 mb-1.5">
+                <span id="progress-status">Подготовка файлов клиента…</span>
+                <span id="progress-percent" class="tabular-nums">0%</span>
+              </div>
+              <div class="progress-track"><div id="progress-bar" class="progress-fill"></div></div>
             </div>
           </div>
-        </div>
 
-        <div id="progress-container" class="hidden glass-card p-3 rounded-xl">
-          <div class="flex justify-between text-xs text-slate-300 mb-1">
-            <span id="progress-status">Подготовка файлов клиента...</span>
-            <span id="progress-percent">0%</span>
+          <div class="hero-builds">
+            <h2 class="builds-heading">Сборки</h2>
+            <div id="build-strip" class="build-strip" role="radiogroup" aria-label="Сборка для запуска"></div>
           </div>
-          <div class="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
-            <div id="progress-bar" class="bg-emerald-500 h-full w-0 transition-all duration-200"></div>
-          </div>
-        </div>
+        </section>
 
-        <div class="grid grid-cols-4 gap-4">
-          <div role="button" tabindex="0" data-select-profile="26.3-vanilla" class="glass-card rounded-xl p-3.5 hover:border-emerald-500/40 transition cursor-pointer">
-            <div class="text-emerald-400 text-lg mb-1">🌱</div>
-            <div class="text-sm font-bold text-white">Vanilla 26.3</div>
-            <div class="text-xs text-emerald-400 mt-0.5">Основной сервер →</div>
-          </div>
-          <div role="button" tabindex="0" data-open-tab="shop" class="glass-card rounded-xl p-3.5 hover:border-amber-500/40 transition cursor-pointer">
-            <div class="text-amber-400 text-lg mb-1">💎</div>
-            <div class="text-sm font-bold text-white">Магазин доната</div>
-            <div class="text-xs text-slate-400 mt-0.5">VIP, Creative, Admin →</div>
-          </div>
-          <div role="button" tabindex="0" data-open-tab="faq" class="glass-card rounded-xl p-3.5 hover:border-cyan-500/40 transition cursor-pointer">
-            <div class="text-cyan-400 text-lg mb-1">📘</div>
-            <div class="text-sm font-bold text-white">FAQ и Правила</div>
-            <div class="text-xs text-slate-400 mt-0.5">Свод правил сервера →</div>
-          </div>
-          <div role="button" tabindex="0" data-open-tab="servers" class="glass-card rounded-xl p-3.5 hover:border-purple-500/40 transition cursor-pointer">
-            <div class="text-purple-400 text-lg mb-1">🖧</div>
-            <div class="text-sm font-bold text-white">Серверы</div>
-            <div class="text-xs text-slate-400 mt-0.5">play.fenixcraft.ru →</div>
-          </div>
-        </div>
-
-        <div>
-          <div class="flex items-center justify-between mb-3">
-            <div class="flex items-center space-x-2">
-              <h2 class="text-lg font-bold text-white">Новости и обновления лаунчера</h2>
-              <span class="text-emerald-400 text-sm">📡</span>
+        <section aria-labelledby="news-heading" class="shrink-0">
+          <div class="flex items-center justify-between mb-2.5">
+            <h2 id="news-heading" class="text-base font-bold text-white">Новости и обновления</h2>
+            <div class="flex items-center gap-4">
+              <button data-open-news="0" class="text-link">Все новости</button>
+              <button id="btn-refresh-news" class="text-link inline-flex items-center gap-1.5"><svg class="icon icon-xs"><use href="#i-refresh"/></svg>Обновить</button>
             </div>
-            <button id="btn-refresh-news" class="text-xs text-emerald-400 hover:underline">Обновить ленту ↻</button>
           </div>
-          <div id="news-grid" class="grid grid-cols-3 gap-4"></div>
-        </div>
+          <div id="news-grid" class="news-grid" aria-live="polite"></div>
+        </section>
       </div>
 
-      <!-- ВКЛАДКА: МАГАЗИН ПРИВИЛЕГИЙ -->
+      <!-- МАГАЗИН -->
       <div id="tab-shop" class="hidden space-y-5">
         <div class="flex items-center justify-between">
           <div>
             <h2 class="text-xl font-bold text-white">Магазин привилегий и валюты FenixCraft</h2>
             <p class="text-xs text-slate-400 mt-0.5">Выберите привилегию — выдача происходит автоматически на ваш никнейм после оплаты.</p>
           </div>
-          <button data-external="https://fenixcraft.trademc.org/" class="bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 hover:bg-emerald-500 hover:text-slate-950 font-semibold text-xs px-4 py-2 rounded-xl transition">
-            Открыть сайт магазина ↗
-          </button>
+          <button data-external="https://fenixcraft.trademc.org/" class="btn-outline text-xs px-4 py-2">Открыть сайт магазина</button>
         </div>
         <div id="shop-grid" class="grid grid-cols-3 gap-4"></div>
       </div>
 
-      <!-- ВКЛАДКА: СЕРВЕРЫ (С УПРАВЛЕНИЕМ СВОИМИ IP) -->
-      <div id="tab-servers" class="hidden space-y-4">
-        <div class="flex items-center justify-between">
-          <div>
-            <h2 class="text-xl font-bold text-white">Список серверов FenixCraft и управление IP</h2>
-            <p class="text-xs text-slate-400">Выберите сервер для авто-входа или добавьте/измените свои IP для правой панели.</p>
-          </div>
-          <button id="btn-reset-servers" class="text-xs text-slate-400 hover:text-emerald-400 transition">Сбросить по умолчанию ↺</button>
+      <!-- НАСТРОЙКИ -->
+      <div id="tab-settings" class="hidden space-y-4">
+        <div>
+          <h2 class="text-xl font-bold text-white">Настройки лаунчера и игры</h2>
+          <p class="text-xs text-slate-400 mt-1">Изменения сохраняются сразу.</p>
         </div>
-        <div id="servers-full-list" class="grid grid-cols-2 gap-4"></div>
 
-        <div class="glass-card p-4 rounded-xl space-y-3 mt-4">
-          <h3 class="text-sm font-bold text-emerald-400">Добавить или обновить сервер в правой панели</h3>
-          <div class="grid grid-cols-4 gap-2.5">
-            <input id="new-srv-name" type="text" placeholder="Название (напр. FenixMain)" class="bg-[#0b1218] border border-white/10 rounded-lg px-3 py-2 text-xs text-white" />
-            <input id="new-srv-desc" type="text" placeholder="Описание (Выживание 1.21.1)" class="bg-[#0b1218] border border-white/10 rounded-lg px-3 py-2 text-xs text-white" />
-            <input id="new-srv-ip" type="text" placeholder="IP (напр. play.fenixcraft.ru)" class="bg-[#0b1218] border border-white/10 rounded-lg px-3 py-2 text-xs text-white" />
-            <div class="flex space-x-2">
-              <input id="new-srv-port" type="number" value="25565" placeholder="Порт" class="w-20 bg-[#0b1218] border border-white/10 rounded-lg px-2.5 py-2 text-xs text-white" />
-              <button id="btn-save-server" class="flex-1 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs rounded-lg transition">Сохранить</button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- ВКЛАДКА: НАСТРОЙКИ -->
-      <div id="tab-settings" class="hidden space-y-5">
-        <h2 class="text-xl font-bold text-white">Настройки лаунчера и игры</h2>
-        <p class="text-xs text-slate-400">Все изменения автоматически применяются и сохраняются в реальном времени.</p>
-
-        <div class="grid grid-cols-2 gap-4">
-          <div class="glass-card p-4 rounded-xl space-y-3">
-            <h3 class="text-sm font-bold text-emerald-400">Игрок</h3>
-            <div>
-              <label class="text-xs text-slate-400">Никнейм (на него также выдается донат в магазине)</label>
-              <input id="cfg-username" type="text" class="w-full mt-1 bg-[#0b1218] border border-white/10 rounded-lg px-3 py-2 text-sm text-white" />
-            </div>
-                      </div>
-
-          <div class="glass-card p-4 rounded-xl space-y-3">
-            <h3 class="text-sm font-bold text-emerald-400">Производительность и Экран</h3>
-            <div>
+        <section class="glass-card settings-card" aria-labelledby="set-perf">
+          <h3 id="set-perf" class="settings-title">Производительность и экран</h3>
+          <div class="grid grid-cols-[minmax(0,1fr)_8rem_8rem] gap-x-4 items-end">
+            <div class="pb-2.5 pr-4">
               <div class="flex justify-between text-xs">
-                <span class="text-slate-400">Выделенная ОЗУ (RAM):</span>
-                <span id="ram-label" class="text-emerald-400 font-bold">6144 МБ</span>
+                <label for="cfg-ram" class="text-slate-400">Выделенная память</label>
+                <span id="ram-label" class="text-emerald-400 font-bold tabular-nums">6144 МБ</span>
               </div>
-              <input id="cfg-ram" type="range" min="2048" max="16384" step="512" class="w-full mt-2 accent-emerald-500" />
+              <input id="cfg-ram" type="range" min="2048" max="16384" step="512" class="w-full mt-3 accent-emerald-500" />
             </div>
-            <div class="grid grid-cols-2 gap-2 pt-1">
-              <div>
-                <label class="text-xs text-slate-400">Ширина окна</label>
-                <input id="cfg-width" type="number" class="w-full mt-1 bg-[#0b1218] border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white" />
-              </div>
-              <div>
-                <label class="text-xs text-slate-400">Высота окна</label>
-                <input id="cfg-height" type="number" class="w-full mt-1 bg-[#0b1218] border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white" />
-              </div>
+            <div>
+              <label for="cfg-width" class="text-xs text-slate-400">Ширина окна</label>
+              <input id="cfg-width" type="number" class="field mt-1 tabular-nums" />
+            </div>
+            <div>
+              <label for="cfg-height" class="text-xs text-slate-400">Высота окна</label>
+              <input id="cfg-height" type="number" class="field mt-1 tabular-nums" />
             </div>
           </div>
+        </section>
 
-          <div class="glass-card p-4 rounded-xl space-y-3 col-span-2">
-            <h3 class="text-sm font-bold text-emerald-400">Среда выполнения Java (Java 21+) и Аргументы JVM</h3>
-            <div>
-              <label class="text-xs text-slate-400">Путь к Java 21 или выше</label>
-              <div class="flex space-x-2 mt-1">
-                <input id="cfg-java" type="text" placeholder="Автоматически (Adoptium)" class="flex-1 bg-[#0b1218] border border-white/10 rounded-lg px-3 py-2 text-sm text-white" />
-                <button id="btn-browse-java" class="bg-slate-800 hover:bg-slate-700 px-4 rounded-lg text-xs font-medium">Обзор...</button>
-              </div>
-            </div>
-            <div>
-              <label class="text-xs text-slate-400">Пользовательские аргументы JVM</label>
-              <input id="cfg-args" type="text" class="w-full mt-1 bg-[#0b1218] border border-white/10 rounded-lg px-3 py-2 text-sm text-white font-mono" />
-            </div>
-            <div class="flex items-center space-x-6 pt-2">
-              <label class="flex items-center space-x-2 text-sm cursor-pointer">
-                <input id="cfg-console" type="checkbox" class="accent-emerald-500 w-4 h-4" />
-                <span>Включить консоль лаунчера при старте</span>
-              </label>
-              <label class="flex items-center space-x-2 text-sm cursor-pointer">
-                <input id="cfg-debug" type="checkbox" class="accent-emerald-500 w-4 h-4" />
-                <span>Режим отладки (Debug лог)</span>
-              </label>
+        <section class="glass-card settings-card" aria-labelledby="set-java">
+          <h3 id="set-java" class="settings-title">Java и аргументы JVM</h3>
+          <div>
+            <label for="cfg-java" class="text-xs text-slate-400">Путь к Java 21 или выше</label>
+            <div class="flex gap-2 mt-1">
+              <input id="cfg-java" type="text" placeholder="Автоматически (Adoptium)" class="field flex-1" />
+              <button id="btn-browse-java" class="btn-ghost text-xs px-4">Обзор…</button>
             </div>
           </div>
-        </div>
+          <div>
+            <label for="cfg-args" class="text-xs text-slate-400">Пользовательские аргументы JVM</label>
+            <input id="cfg-args" type="text" class="field mt-1 font-mono" />
+          </div>
+          <div class="flex items-center gap-6 pt-1">
+            <label class="flex items-center gap-2 text-sm cursor-pointer">
+              <input id="cfg-console" type="checkbox" class="accent-emerald-500 w-4 h-4" />
+              <span>Открывать консоль при запуске</span>
+            </label>
+            <label class="flex items-center gap-2 text-sm cursor-pointer">
+              <input id="cfg-debug" type="checkbox" class="accent-emerald-500 w-4 h-4" />
+              <span>Подробный журнал (Debug)</span>
+            </label>
+          </div>
+        </section>
+
+        <section class="glass-card settings-card" aria-labelledby="set-files">
+          <h3 id="set-files" class="settings-title">Папка игры</h3>
+          <p class="text-xs text-slate-400">Здесь лежат версии, библиотеки, моды и миры всех сборок. Новая папка применяется к следующим загрузкам: уже скачанные файлы остаются на старом месте.</p>
+          <div class="flex gap-2">
+            <input id="cfg-game-dir" type="text" readonly aria-label="Папка игры" class="field flex-1 font-mono text-xs selectable-console" />
+            <button id="btn-change-game-dir" class="btn-ghost text-xs px-4 inline-flex items-center gap-1.5"><svg class="icon icon-xs"><use href="#i-folder"/></svg>Изменить путь</button>
+            <button id="btn-open-game-dir" class="btn-outline text-xs px-4">Открыть</button>
+          </div>
+          <button id="btn-reset-game-dir" class="hidden text-link text-xs">Вернуть папку по умолчанию</button>
+        </section>
       </div>
 
-      <!-- ВКЛАДКА: FAQ И ПРАВИЛА -->
+      <!-- FAQ И ПРАВИЛА -->
       <div id="tab-faq" class="hidden space-y-5 pb-4">
         <h2 class="text-xl font-bold text-white">Правила и частые вопросы</h2>
 
@@ -325,94 +285,87 @@
 
         <section class="space-y-2" aria-labelledby="faq-new">
           <h3 id="faq-new" class="text-base font-bold text-white">Вопросы новичков</h3>
-          <details class="glass-card faq-item"><summary>Как начать играть?</summary><p>Выберите «Пиратка» и введите ник либо войдите через «Лицензия». Затем выберите сборку рядом с кнопкой «Играть» и нажмите её. Первая загрузка занимает несколько минут: лаунчер сам скачает игру и Java.</p></details>
-          <details class="glass-card faq-item"><summary>Какую сборку выбрать?</summary><p>Vanilla 26.3 подходит для основного сервера FenixCraft, NeoForge 1.21.1 — для сервера FenixTech с модами. Варианты с Iris добавляют поддержку шейдеров, но сильнее нагружают компьютер.</p></details>
+          <details class="glass-card faq-item"><summary>Как начать играть?</summary><p>Выберите «Пиратка» и введите ник либо войдите через «Лицензия». Затем выберите сборку внизу баннера на главной и нажмите «Играть». Первая загрузка занимает несколько минут: лаунчер сам скачает игру и Java.</p></details>
+          <details class="glass-card faq-item"><summary>Какую сборку выбрать?</summary><p>Vanilla 26.3 подходит для основного сервера FenixCraft, NeoForge 1.21.1 — для сервера FenixTech с модами. NeoForge 26.2 — сборка с модами на новой версии игры. Варианты с Iris добавляют поддержку шейдеров, но сильнее нагружают компьютер.</p></details>
           <details class="glass-card faq-item"><summary>Какие требования к нику?</summary><p>От 3 до 16 символов: латинские буквы, цифры и знак подчёркивания. Русские буквы и пробелы использовать нельзя.</p></details>
           <details class="glass-card faq-item"><summary>Чем отличаются «Пиратка» и «Лицензия»?</summary><p>«Пиратка» запускает игру под введённым ником, на сервере нужно зарегистрироваться и входить паролем. «Лицензия» подходит владельцам официальной игры: вход выполняется через аккаунт Microsoft, а пароль в лаунчер вводить не нужно.</p></details>
           <details class="glass-card faq-item"><summary>Как войти на сервер в режиме «Пиратка»?</summary><p>При первом входе введите в чате <code>/register пароль пароль</code>, затем при каждом входе — <code>/login пароль</code>. Не используйте пароль от других аккаунтов.</p></details>
           <details class="glass-card faq-item"><summary>Лаунчер пишет «Технические работы». Что делать?</summary><p>Сервер сборок сейчас недоступен, поэтому сборки с модами временно не запускаются. Ванильная версия при этом работает. Проверьте интернет и попробуйте позже.</p></details>
           <details class="glass-card faq-item"><summary>Можно ли играть без интернета?</summary><p>Да, в уже скачанную ванильную версию. Сборкам с модами нужен сервер сборок, а для подключения к серверам FenixCraft нужен интернет.</p></details>
+          <details class="glass-card faq-item"><summary>Как сменить скин персонажа?</summary><p>В правой панели нажмите «Сменить скин» и выберите PNG-файл скина размером 64×64. Скин сохраняется в лаунчере, вернуть стандартный можно кнопкой рядом.</p></details>
         </section>
 
         <section class="space-y-2" aria-labelledby="faq-pro">
           <h3 id="faq-pro" class="text-base font-bold text-white">Для опытных игроков</h3>
           <details class="glass-card faq-item"><summary>Игра вылетает или не запускается</summary><p>Откройте консоль кнопкой в шапке лаунчера, посмотрите последние строки и сохраните журнал кнопкой «Сохранить Debug-лог». Частые причины: нехватка памяти, устаревший драйвер видеокарты и несовместимый мод. Журнал поможет администрации найти причину.</p></details>
           <details class="glass-card faq-item"><summary>Сколько памяти выделять?</summary><p>Для ванильной версии обычно хватает 4–6 ГБ, для сборок с модами и шейдерами — 6–8 ГБ. Больше не всегда лучше: оставьте системе хотя бы 4 ГБ. Настройка находится в разделе «Настройки».</p></details>
-          <details class="glass-card faq-item"><summary>Где лежат файлы игры?</summary><p>В Windows это папка <code>%APPDATA%\.fenixcraft</code>. Миры, моды и настройки каждой сборки находятся в <code>instances\название-сборки</code>, а версии, библиотеки и ресурсы общие.</p></details>
+          <details class="glass-card faq-item"><summary>Где лежат файлы игры?</summary><p>По умолчанию в Windows это папка <code>%APPDATA%\.fenixcraft</code>. Путь можно посмотреть и изменить в «Настройки → Папка игры», там же кнопка «Открыть». Миры, моды и настройки каждой сборки находятся в <code>instances\название-сборки</code>, а версии, библиотеки и ресурсы общие.</p></details>
           <details class="glass-card faq-item"><summary>Куда исчезли мои миры и моды после обновления?</summary><p>Миры, скриншоты, ресурс-паки и шейдеры один раз перенесены в ту сборку, которая была выбрана при первом запуске новой версии. Моды из старой папки <code>mods</code> остались на месте: скопируйте нужные в папку сборки.</p></details>
           <details class="glass-card faq-item"><summary>Лаунчер удалил мой мод из сборки</summary><p>Сборки, файлы которых раздаёт сервер, синхронизируются при запуске: посторонние моды удаляются, чтобы у всех игроков был одинаковый набор. Свои моды можно использовать в сборках, для которых сервер не раздаёт файлы.</p></details>
           <details class="glass-card faq-item"><summary>Файлы игры повреждены, как проверить?</summary><p>В консоли нажмите «Проверить ассеты»: все ресурсы будут сверены по контрольным суммам. Недостающие и повреждённые файлы докачаются при следующем запуске.</p></details>
-          <details class="glass-card faq-item"><summary>Как указать свою Java или аргументы JVM?</summary><p>В разделе «Настройки» укажите путь к Java и нужные аргументы. Если оставить путь пустым, лаунчер подберёт и скачает подходящую версию сам: Java 25 для 26.3 и Java 21 для 1.21.1.</p></details>
+          <details class="glass-card faq-item"><summary>Как указать свою Java или аргументы JVM?</summary><p>В разделе «Настройки» укажите путь к Java и нужные аргументы. Если оставить путь пустым, лаунчер подберёт и скачает подходящую версию сам: Java 25 для версий 26.x и Java 21 для 1.21.1.</p></details>
           <details class="glass-card faq-item"><summary>Войти через Microsoft не получается</summary><p>Для входа нужен аккаунт с купленной Minecraft: Java Edition и профилем Xbox. Если окно сообщает об ошибке, выполните его подсказку. Пока вход недоступен, можно пользоваться режимом «Пиратка».</p></details>
         </section>
       </div>
 
-      <!-- ВКЛАДКА: КОНСОЛЬ ОТЛАДКИ (С ВЫДЕЛЕНИЕМ ТЕКСТА, КОПИРОВАНИЕМ И СОХРАНЕНИЕМ DEBUG-ФАЙЛА) -->
+      <!-- КОНСОЛЬ -->
       <div id="tab-console" class="hidden space-y-3">
         <div class="flex justify-between items-center">
-          <h2 class="text-lg font-bold text-white">Консоль лаунчера и Debug-монитор</h2>
-          <div class="flex items-center space-x-2">
-            <button id="btn-verify-assets" class="bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 hover:bg-emerald-500 hover:text-slate-950 text-xs font-semibold px-3 py-1.5 rounded-lg transition">
-              🔍 Проверить ассеты
-            </button>
-            <button id="btn-copy-console" class="bg-slate-800 hover:bg-slate-700 border border-white/10 text-slate-200 text-xs font-medium px-3 py-1.5 rounded-lg transition">
-              📋 Копировать
-            </button>
-            <button id="btn-save-debug" class="bg-cyan-500/20 border border-cyan-500/40 text-cyan-300 hover:bg-cyan-400 hover:text-slate-950 text-xs font-semibold px-3 py-1.5 rounded-lg transition">
-              💾 Сохранить Debug-лог
-            </button>
+          <h2 class="text-lg font-bold text-white">Консоль лаунчера</h2>
+          <div class="flex items-center gap-2">
+            <button id="btn-verify-assets" class="btn-outline text-xs px-3 py-1.5">Проверить ассеты</button>
+            <button id="btn-copy-console" class="btn-ghost text-xs px-3 py-1.5">Копировать</button>
+            <button id="btn-save-debug" class="btn-ghost text-xs px-3 py-1.5">Сохранить Debug-лог</button>
             <button id="btn-clear-console" class="text-xs text-slate-400 hover:text-white px-2">Очистить</button>
           </div>
         </div>
-        <pre id="console-output" tabindex="0" class="selectable-console glass-card p-4 rounded-xl h-96 overflow-y-auto text-xs font-mono text-emerald-300 whitespace-pre-wrap focus:outline-none focus:border-emerald-500/40"></pre>
+        <pre id="console-output" tabindex="0" class="selectable-console glass-card p-4 rounded-xl h-[32rem] overflow-y-auto text-xs font-mono text-emerald-300 whitespace-pre-wrap focus:outline-none"></pre>
       </div>
     </main>
 
-    <!-- ПРАВЫЙ САЙДБАР -->
-    <aside class="w-72 glass-rail border-l border-white/10 p-4 flex flex-col justify-between shrink-0">
-      <div class="space-y-4">
-        <div class="flex items-center justify-between">
-          <h3 class="text-sm font-bold text-white">Мои серверы</h3>
-          <button id="btn-ping-servers" class="text-xs text-emerald-400 hover:underline">Обновить →</button>
+    <!-- ПРАВАЯ ПАНЕЛЬ -->
+    <aside class="w-72 glass-rail border-l border-white/10 p-4 flex flex-col gap-4 shrink-0">
+      <section aria-labelledby="servers-heading">
+        <div class="flex items-center justify-between mb-2.5">
+          <h3 id="servers-heading" class="text-sm font-bold text-white">Мои серверы</h3>
+          <button id="btn-ping-servers" class="text-link inline-flex items-center gap-1"><svg class="icon icon-xs"><use href="#i-refresh"/></svg>Обновить</button>
         </div>
-        <div id="servers-list" class="space-y-2.5"></div>
-        <div class="pt-2">
-          <h4 class="text-xs font-semibold text-slate-400 mb-2">Выбранный профиль</h4>
-          <div class="glass-card p-3 rounded-xl flex items-center justify-between">
-            <div class="flex items-center space-x-3">
-              <div class="w-10 h-10 rounded-lg bg-emerald-500/20 flex items-center justify-center">🌍</div>
-              <div>
-                <div id="last-launch-ver" class="text-xs font-bold text-white truncate max-w-[140px]">Vanilla 26.3</div>
-                <div class="text-[11px] text-slate-400">Запуск зеленой кнопкой</div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+        <div id="servers-list" class="space-y-2"></div>
+      </section>
 
-      <div class="glass-card p-4 rounded-xl relative">
-        <p class="text-xs italic text-slate-400">«В каждом кубике скрывается целый мир...»</p>
-        <div class="text-right text-emerald-400 text-lg mt-1">👾</div>
-      </div>
+      <section class="skin-panel" aria-labelledby="skin-heading">
+        <div class="flex items-center justify-between">
+          <h3 id="skin-heading" class="text-sm font-bold text-white">Персонаж</h3>
+          <button id="btn-skin-reset" class="hidden text-link text-[11px]">Стандартный скин</button>
+        </div>
+        <div class="skin-stage">
+          <canvas id="skin-canvas" aria-label="3D-модель персонажа, можно вращать мышью"></canvas>
+          <p id="skin-fallback" class="hidden skin-fallback">3D-просмотр недоступен на этом компьютере.</p>
+        </div>
+        <div class="skin-poses" role="group" aria-label="Анимация персонажа">
+          <button data-skin-pose="idle" aria-pressed="true">Стоять</button>
+          <button data-skin-pose="wave" aria-pressed="false">Махать</button>
+          <button data-skin-pose="walk" aria-pressed="false">Идти</button>
+        </div>
+        <button id="btn-skin-change" class="btn-skin">
+          <svg class="icon"><use href="#i-shirt"/></svg>Сменить скин
+        </button>
+        <input type="file" id="skin-file-input" accept="image/png" class="hidden" />
+      </section>
     </aside>
   </div>
 
-<!-- МОДАЛЬНОЕ ОКНО АВТООБНОВЛЕНИЯ ЛАУНЧЕРА -->
+  <!-- ОБНОВЛЕНИЕ ЛАУНЧЕРА -->
   <div id="update-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
-    <div class="glass-card bg-[#0b1219] border border-emerald-500/30 rounded-2xl p-6 max-w-md w-full shadow-2xl space-y-4">
-      <div class="flex items-center space-x-3">
-        <div class="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-xl">🚀</div>
-        <div>
-          <h3 class="text-base font-bold text-white">Доступно обновление лаунчера!</h3>
-          <p id="update-version-label" class="text-xs text-emerald-400 font-medium">Версия v1.0.1</p>
-        </div>
+    <div class="modal-card border-emerald-500/30 space-y-4">
+      <div>
+        <h3 class="text-base font-bold text-white">Доступно обновление лаунчера</h3>
+        <p id="update-version-label" class="text-xs text-emerald-400 font-medium">Версия</p>
       </div>
-      <div class="bg-black/40 rounded-xl p-3 border border-white/5 text-xs text-slate-300 whitespace-pre-line max-h-40 overflow-y-auto" id="update-changelog">
-        Загрузка списка изменений...
-      </div>
-      <div class="flex items-center justify-end space-x-2 pt-2">
+      <div class="bg-black/40 rounded-xl p-3 border border-white/5 text-xs text-slate-300 whitespace-pre-line max-h-40 overflow-y-auto" id="update-changelog">Загрузка списка изменений…</div>
+      <div class="flex items-center justify-end gap-2 pt-2">
         <button id="btn-update-later" class="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white transition">Позже</button>
-        <button id="btn-update-now" class="px-5 py-2 text-xs font-bold bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl shadow-lg shadow-emerald-500/20 active:scale-95 transition">Обновить сейчас</button>
+        <button id="btn-update-now" class="btn-primary text-xs px-5 py-2">Обновить сейчас</button>
       </div>
     </div>
   </div>
@@ -422,39 +375,40 @@
     <div id="glass-modal-panel" class="glass-panel">
       <header class="glass-panel-header">
         <h3 id="glass-modal-title"></h3>
-        <button id="btn-glass-close" class="glass-close" aria-label="Закрыть" title="Закрыть">✕</button>
+        <button id="btn-glass-close" class="glass-close" aria-label="Закрыть" title="Закрыть"><svg class="icon icon-sm"><use href="#i-close"/></svg></button>
       </header>
       <div id="glass-modal-body" class="glass-panel-body"></div>
     </div>
   </div>
 
-  <!-- ОКНО ВХОДА MICROSOFT -->
+  <!-- ВХОД MICROSOFT -->
   <div id="ms-login-modal" role="dialog" aria-modal="true" aria-labelledby="ms-login-title" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
-    <div class="glass-card bg-[#0b1219] border border-emerald-500/30 rounded-2xl p-6 max-w-md w-full shadow-2xl space-y-4">
+    <div class="modal-card border-emerald-500/30 space-y-4">
       <h3 id="ms-login-title" class="text-base font-bold text-white">Вход через Microsoft</h3>
       <p class="text-sm text-slate-300">Откройте страницу входа и введите этот код. Лаунчер продолжит сам, пароль в нём вводить не нужно.</p>
       <div id="ms-login-code" class="selectable-console text-center text-3xl font-black tracking-widest text-emerald-400 py-3 rounded-xl bg-black/40 border border-white/5"></div>
-      <div class="flex items-center justify-end space-x-2">
+      <div class="flex items-center justify-end gap-2">
         <button id="btn-ms-cancel" class="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white transition">Отмена</button>
-        <button id="btn-ms-copy" class="px-4 py-2 text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl transition">Скопировать код</button>
-        <button id="btn-ms-open" class="px-5 py-2 text-xs font-bold bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl active:scale-95 transition">Открыть страницу</button>
+        <button id="btn-ms-copy" class="btn-ghost text-xs px-4 py-2">Скопировать код</button>
+        <button id="btn-ms-open" class="btn-primary text-xs px-5 py-2">Открыть страницу</button>
       </div>
     </div>
   </div>
 
-  <!-- ОКНО ОШИБКИ ЗАПУСКА -->
+  <!-- ОШИБКА -->
   <div id="error-modal" role="alertdialog" aria-modal="true" aria-labelledby="error-title" aria-describedby="error-message" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
-    <div class="glass-card bg-[#0b1219] border border-red-500/30 rounded-2xl p-6 max-w-md w-full shadow-2xl space-y-3">
+    <div class="modal-card border-red-500/30 space-y-3">
       <h3 id="error-title" class="text-base font-bold text-white"></h3>
       <p id="error-message" class="text-sm text-slate-200 selectable-console"></p>
       <p id="error-hint" class="text-xs text-slate-400"></p>
-      <div class="flex items-center justify-end space-x-2 pt-2">
+      <div class="flex items-center justify-end gap-2 pt-2">
         <button id="btn-error-console" class="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white transition">Открыть консоль</button>
-        <button id="btn-error-close" class="px-5 py-2 text-xs font-bold bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl active:scale-95 transition">Понятно</button>
+        <button id="btn-error-close" class="btn-primary text-xs px-5 py-2">Понятно</button>
       </div>
     </div>
   </div>
 
+  <script src="vendor/skinview3d.bundle.js"></script>
   <script type="module" src="renderer.js"></script>
 </body>
 </html>

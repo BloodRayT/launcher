@@ -54,6 +54,22 @@ def test_every_manifest_url_is_downloadable(client: TestClient) -> None:
         assert client.get(path).status_code == 200, path
 
 
+def test_neoforge_26_2_profile_lists_its_mods(
+    client: TestClient, tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    profile = "26.2-iris-neoforge"
+    mod = tmp_path / profile / "mods" / "iris-neoforge-1.11.4+mc26.2.jar"
+    mod.parent.mkdir(parents=True)
+    mod.write_bytes(b"jar")
+    monkeypatch.setattr(backend, "STORAGE_DIR", str(tmp_path))
+
+    manifest = client.get(f"/api/launcher/manifest/{profile}").json()
+
+    assert manifest["profile"] == profile
+    assert [item["path"] for item in manifest["files"]] == ["mods/iris-neoforge-1.11.4+mc26.2.jar"]
+    assert manifest["files"][0]["sha256"] == hashlib.sha256(b"jar").hexdigest()
+
+
 def test_unknown_profile_is_not_found(client: TestClient) -> None:
     assert client.get("/api/launcher/manifest/latest-vanilla").status_code == 404
 

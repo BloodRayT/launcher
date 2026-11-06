@@ -1,116 +1,29 @@
-import {
-  connectivityLabel,
-  escapeHtml,
-  formatReleaseDate,
-  isValidUsername,
-  pickLocalImage,
-  renderMarkdown,
-  safeImageUrl,
-  safeLinkUrl,
-  serverStatusLabel,
-} from './utils.js';
+import { appendConsole, bindConsole } from './console.js';
+import { byId, hideError, invoke, openUrl, showError, tauriCore, tauriDialog, tauriEvent } from './core.js';
+import { BUILD_IDS, BUILDS, buildById, buildCaption, buildChips } from './builds.js';
+import { startEmbers } from './embers.js';
+import { LOCAL_NEWS_IMAGES, homeCards, newsArticlesHtml, releasesHtml, twitchHtml } from './news.js';
+import { SERVER_DEFAULTS, serversHtml } from './servers.js';
+import { SHOP_URL, shopGridHtml } from './shop.js';
+import { DEFAULT_SKIN, createSkinStage, readSkinFile } from './skin.js';
+import { checkForUpdates } from './updates.js';
+import { changedSlots, connectivityLabel, escapeHtml, isValidUsername, unseenPostIds } from './utils.js';
 
-const tauriCore = window.__TAURI__?.core;
-const tauriEvent = window.__TAURI__?.event;
-const tauriDialog = window.__TAURI__?.dialog;
-
-const LOCAL_NEWS_IMAGES = ['baner.webp', 'background.jpg'];
 const NEWS_CACHE_KEY = 'fenix.news.v2';
+const NEWS_SEEN_KEY = 'fenix.news.seen';
 const RELEASES_CACHE_KEY = 'fenix.releases.v1';
 const RELEASES_FETCHED_KEY = 'fenix.releases.fetchedAt';
 const RELEASES_REFRESH_MS = 30 * 60 * 1000;
-const NEWS_CARDS_ON_HOME = 2;
-const TWITCH_CHANNEL = 'bloodrayt';
-const SHOP_URL = 'https://fenixcraft.trademc.org/';
-const TWITCH_URL = 'https://www.twitch.tv/bloodrayt';
+const NEWS_REFRESH_MS = 5 * 60 * 1000;
 const REFRESH_INTERVAL_MS = 30000;
 const CONNECTIVITY_INTERVAL_MS = 60000;
 const SAVE_DEBOUNCE_MS = 300;
-const MAX_CONSOLE_LINES = 5000;
 const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
+const MAX_SKIN_BYTES = 32 * 1024;
 const AVATAR_SIZE = 128;
-const VALID_PROFILES = ['26.3-vanilla', '26.3-iris', '1.21.1-neoforge', '1.21.1-iris-neoforge'];
-const TABS = ['home', 'shop', 'servers', 'settings', 'faq', 'console'];
-
-/** Вне приложения (проверка верстки в браузере) вызовы заменяются заглушками. */
-const previewResponses = {
-  get_config: () => ({
-    username: 'Preview_Player', accountType: 'offline', ram: 6144, width: 1280, height: 720,
-    javaPath: '', jvmArgs: '-XX:+UseG1GC', showConsole: false, debugMode: false,
-    selectedVersion: '26.3-vanilla', selectedServer: 'play.fenixcraft.ru',
-    customServers: [], avatarData: '', msUsername: '', msUuid: '',
-  }),
-  get_launcher_version: () => 'dev',
-  get_connectivity: () => ({ internet: true, backend: true }),
-  get_servers_status: () => ({}),
-  get_vk_news: () => ({ success: false }),
-  check_twitch_live: () => ({ live: false }),
-  get_launcher_releases: () => [],
-  check_launcher_update: () => ({ updateAvailable: false }),
-  ms_login_available: () => false,
-  save_launcher_config: (args) => args.newConfig,
-};
-
-function invoke(command, args) {
-  if (tauriCore) return tauriCore.invoke(command, args);
-  return Promise.resolve(previewResponses[command]?.(args));
-}
-
-const SERVER_DEFAULTS = [
-  { id: 'fenix-main', name: 'FenixCraft', desc: 'Vanilla • 26.3', ip: 'play.fenixcraft.ru', port: 25565, icon: '🦅', maxDefault: 1000 },
-  { id: 'fenix-mods', name: 'FenixTech', desc: 'NeoForge • 1.21.1', ip: 'tech.fenixcraft.ru', port: 25565, icon: '⚙️', maxDefault: 500 },
-];
-
-const SHOP_ITEMS = [
-  {
-    id: 'vip', name: 'Привилегия [VIP]', price: '149 ₽', badge: 'Хит продаж', icon: '👑',
-    color: 'from-amber-500/20 to-yellow-600/5 border-amber-500/40',
-    btnColor: 'bg-amber-500 hover:bg-amber-400 text-slate-950',
-    perks: ['Префикс [VIP] в чате и табе', 'Полет /fly в лобби и приватных зонах', 'Доступ к киту /kit vip каждые 24ч', 'Вход на переполненный сервер', '5 дополнительных точек дома /sethome'],
-  },
-  {
-    id: 'creativ', name: 'Привилегия [Creative]', price: '299 ₽', badge: 'Строителям', icon: '🎨',
-    color: 'from-cyan-500/20 to-blue-600/5 border-cyan-500/40',
-    btnColor: 'bg-cyan-400 hover:bg-cyan-300 text-slate-950',
-    perks: ['Режим креатива /gm 1 в разрешенных мирах', 'Доступ к командам WorldEdit (//set, //copy)', 'Префикс [Creative] и цветной чат', 'Эксклюзивный набор /kit creative', 'Все возможности привилегии VIP'],
-  },
-  {
-    id: 'moder', name: 'Привилегия [Moder]', price: '599 ₽', badge: 'Страж порядка', icon: '🛡️',
-    color: 'from-purple-500/20 to-indigo-600/5 border-purple-500/40',
-    btnColor: 'bg-purple-500 hover:bg-purple-400 text-white',
-    perks: ['Команды модерации (/mute, /kick, /tp)', 'Просмотр инвентаря игроков /invsee', 'Режим невидимости /vanish', 'Ежедневный бонус /kit moder', 'Иммунитет к кику и муту'],
-  },
-  {
-    id: 'admin', name: 'Привилегия [Admin]', price: '999 ₽', badge: 'Максимум прав', icon: '⚡',
-    color: 'from-rose-500/20 to-red-600/5 border-rose-500/40',
-    btnColor: 'bg-rose-500 hover:bg-rose-400 text-white',
-    perks: ['Полный набор прав [Admin] на сервере', 'Команды /ban, /tempban, /god, /heal', 'Управление погодой и временем в мире', 'Элитный кит /kit admin с топ-ресурсами', 'Включает все привилегии ниже'],
-  },
-  {
-    id: 'money', name: 'Игровая валюта [Money]', price: 'от 49 ₽', badge: 'Экономика', icon: '💰',
-    color: 'from-emerald-500/20 to-teal-600/5 border-emerald-500/40',
-    btnColor: 'bg-emerald-500 hover:bg-emerald-400 text-slate-950',
-    perks: ['Пакеты: 50 000$, 250 000$, 1 000 000$', 'Мгновенное зачисление на баланс /money', 'Покупка редких ресурсов на аукционе /ah', 'Создание собственных варпов и кланов', 'Бонус +25% при покупке от 250 000$'],
-  },
-];
-
-const FALLBACK_NEWS = [
-  { tag: 'VK.RU/FENIXCRAFT', title: 'Сообщество FenixCraft ВКонтакте', text: 'Новости появятся здесь, как только лаунчер сможет связаться с ВКонтакте. Все записи и конкурсы есть на стене сообщества.', date: 'Официальная группа', image: '', images: [], url: 'https://vk.ru/fenixcraft' },
-  { tag: 'Магазин', tone: 'amber', title: 'Привилегии VIP, Creative, Moder, Admin и Money', text: 'Поддержите развитие сервера и получите уникальные возможности в разделе «Магазин».', date: 'FenixCraft Shop', image: '', images: [], url: SHOP_URL },
-];
+const TABS = ['home', 'shop', 'settings', 'faq', 'console'];
 
 let currentConfig = {};
-const byId = (id) => document.getElementById(id);
-
-function openUrl(url) {
-  const safe = safeLinkUrl(url);
-  if (!safe) return Promise.resolve();
-  if (tauriCore) {
-    return invoke('open_external_url', { url: safe }).catch((error) => showError({ title: 'Ссылка не открылась', message: String(error), hint: '' }));
-  }
-  window.open(safe, '_blank', 'noopener');
-  return Promise.resolve();
-}
 
 let pendingSave = Promise.resolve();
 
@@ -120,6 +33,8 @@ function persistConfig(changes) {
     try {
       currentConfig = await invoke('save_launcher_config', { newConfig: { ...currentConfig, ...changes } });
     } catch (error) {
+      // Интерфейс возвращается к тому, что реально лежит на диске.
+      currentConfig = await invoke('get_config').catch(() => currentConfig);
       showError({ title: 'Настройки не сохранены', message: String(error), hint: 'Проверьте свободное место на диске.' });
     }
     return currentConfig;
@@ -127,114 +42,95 @@ function persistConfig(changes) {
   return pendingSave;
 }
 
-// --- Диалог ошибки ---
-
-function showError({ title, message, hint }) {
-  byId('error-title').textContent = title;
-  byId('error-message').textContent = message;
-  byId('error-hint').textContent = hint || '';
-  byId('error-modal').classList.remove('hidden');
-  byId('btn-error-close').focus();
-}
-
-function hideError() {
-  byId('error-modal').classList.add('hidden');
-}
-
 // --- Вкладки ---
 
 function switchTab(tabId) {
   for (const id of TABS) byId(`tab-${id}`)?.classList.add('hidden');
   (byId(`tab-${tabId}`) || byId('tab-home')).classList.remove('hidden');
-  document.querySelectorAll('.nav-btn').forEach((button) => {
+  document.querySelectorAll('.nav-btn[data-tab]').forEach((button) => {
     button.classList.toggle('active-nav', button.dataset.tab === tabId);
   });
 }
 
-// --- Магазин ---
+// --- Сборки и баннер ---
 
-function renderShop() {
-  const buyer = escapeHtml(displayName() || 'Игрока');
-  byId('shop-grid').innerHTML = SHOP_ITEMS.map((item) => `
-    <div class="rounded-2xl p-4 bg-gradient-to-br ${item.color} border flex flex-col justify-between space-y-4">
-      <div>
-        <div class="flex items-center justify-between">
-          <span class="text-2xl">${item.icon}</span>
-          <span class="text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-white/10 text-white">${item.badge}</span>
-        </div>
-        <h3 class="text-base font-extrabold text-white mt-2">${item.name}</h3>
-        <div class="text-xl font-black text-emerald-400 mt-0.5">${item.price}</div>
-        <ul class="text-xs text-slate-300 space-y-1.5 mt-3">
-          ${item.perks.map((perk) => `<li class="flex items-start space-x-1.5"><span class="text-emerald-400">✔</span><span>${perk}</span></li>`).join('')}
-        </ul>
-      </div>
-      <button data-buy="${item.id}" class="w-full py-2.5 rounded-xl font-bold text-xs transition active:scale-95 ${item.btnColor}">Купить для ${buyer}</button>
-    </div>
-  `).join('');
+function selectedBuild() {
+  return buildById(currentConfig.selectedVersion);
+}
+
+function renderBuilds() {
+  const selected = selectedBuild().id;
+  byId('build-strip').innerHTML = BUILDS.map((build) => {
+    const checked = build.id === selected;
+    return `
+      <button role="radio" aria-checked="${checked}" tabindex="${checked ? 0 : -1}" data-build="${build.id}" class="build-card">
+        ${build.isNew ? '<span class="build-new">Новое</span>' : ''}
+        <span class="build-name">${escapeHtml(build.name)}</span>
+        <span class="build-meta">${escapeHtml(buildCaption(build))}</span>
+      </button>`;
+  }).join('');
+}
+
+function renderHero(animate) {
+  const build = selectedBuild();
+  const hero = document.querySelector('.hero');
+  hero.dataset.loader = build.loader;
+  hero.dataset.shaders = String(build.shaders);
+  byId('hero-title').textContent = build.name;
+  byId('hero-meta').innerHTML = buildChips(build).map((chip) => `<span class="hero-chip">${escapeHtml(chip)}</span>`).join('');
+  byId('hero-desc').textContent = build.desc;
+  if (animate) {
+    hero.classList.remove('hero-swap');
+    void hero.offsetWidth;
+    hero.classList.add('hero-swap');
+  }
+}
+
+async function selectBuild(id, { focus = false } = {}) {
+  if (!BUILD_IDS.includes(id) || id === currentConfig.selectedVersion) return;
+  currentConfig = { ...currentConfig, selectedVersion: id };
+  renderBuilds();
+  renderHero(true);
+  if (focus) document.querySelector(`[data-build="${id}"]`)?.focus();
+  await persistConfig({ selectedVersion: id });
+  if (currentConfig.selectedVersion !== id) {
+    renderBuilds();
+    renderHero(false);
+  }
+}
+
+/** Стрелки переключают сборку, как в обычной группе переключателей. */
+function bindBuildKeys() {
+  byId('build-strip').addEventListener('keydown', (event) => {
+    const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[event.key];
+    if (!step) return;
+    event.preventDefault();
+    const index = BUILD_IDS.indexOf(selectedBuild().id);
+    selectBuild(BUILD_IDS[(index + step + BUILD_IDS.length) % BUILD_IDS.length], { focus: true });
+  });
 }
 
 // --- Новости ---
 
-/** Классы выбираются только из этого списка: данные новостей приходят извне. */
-const NEWS_TAG_CLASSES = new Map([
-  ['amber', 'bg-amber-500 text-slate-950'],
-  ['cyan', 'bg-cyan-500 text-slate-950'],
-]);
-
-function newsTagClass(post) {
-  return NEWS_TAG_CLASSES.get(post.tone) ?? 'bg-emerald-500 text-slate-950';
-}
-
 let newsPosts = [];
 let releaseNotes = [];
+let homeSignatures = [];
+let freshPostIds = [];
 
-function imageOf(post) {
-  return safeImageUrl(post.image, pickLocalImage(post.title, LOCAL_NEWS_IMAGES));
-}
-
-function newsCard({ attributes, image, tag, tagClass, title, text, date }) {
-  return `
-    <div role="button" tabindex="0" ${attributes}
-         class="glass-card rounded-xl overflow-hidden flex flex-col justify-between hover:border-emerald-400/50 transition cursor-pointer">
-      <div class="h-28 relative bg-slate-900">
-        <img src="${escapeHtml(image)}" alt="" loading="lazy" class="news-image w-full h-full object-cover" />
-        <span class="absolute bottom-2 left-2 text-[10px] font-bold px-2.5 py-0.5 rounded-full ${tagClass}">${escapeHtml(tag)}</span>
-      </div>
-      <div class="p-3.5 flex-1 flex flex-col justify-between space-y-2">
-        <div>
-          <h4 class="text-sm font-bold text-white line-clamp-1">${escapeHtml(title)}</h4>
-          <p class="text-xs text-slate-300 mt-1 line-clamp-2">${escapeHtml(text)}</p>
-        </div>
-        <div class="text-[11px] text-emerald-300 pt-1 flex justify-between items-center">
-          <span>${escapeHtml(date)}</span>
-          <span>Подробнее</span>
-        </div>
-      </div>
-    </div>`;
-}
-
+/** Перерисовываются только изменившиеся карточки: новая запись или новый релиз. */
 function renderNewsGrid() {
-  const posts = newsPosts.length > 0 ? newsPosts : FALLBACK_NEWS;
-  const latest = releaseNotes[0];
-  const cards = posts.slice(0, NEWS_CARDS_ON_HOME).map((post, index) => newsCard({
-    attributes: `data-open-news="${index}"`,
-    image: imageOf(post),
-    tag: post.tag || 'VK.RU/FENIXCRAFT',
-    tagClass: newsTagClass(post),
-    title: post.title || 'Новость FenixCraft',
-    text: post.text,
-    date: post.date,
-  }));
-  cards.push(newsCard({
-    attributes: 'data-open-updates="true"',
-    image: LOCAL_NEWS_IMAGES[0],
-    tag: 'Лаунчер',
-    tagClass: 'bg-cyan-500 text-slate-950',
-    title: latest ? `Обновление ${latest.version}` : 'Обновления лаунчера',
-    text: latest ? latest.body.replace(/[#*`]/g, '').trim() || latest.name : 'История версий появится, когда лаунчер свяжется с GitHub.',
-    date: latest ? formatReleaseDate(latest.date) : 'GitHub',
-  }));
-  byId('news-grid').innerHTML = cards.join('');
+  const cards = homeCards(newsPosts, releaseNotes, freshPostIds);
+  const signatures = cards.map((card) => card.signature);
+  const grid = byId('news-grid');
+  for (const index of changedSlots(homeSignatures, signatures)) {
+    const template = document.createElement('template');
+    template.innerHTML = cards[index].html.trim();
+    const card = template.content.firstElementChild;
+    const existing = grid.children[index];
+    if (existing) existing.replaceWith(card);
+    else grid.append(card);
+  }
+  homeSignatures = signatures;
 }
 
 function readCache(key) {
@@ -271,17 +167,23 @@ function writeReleasesFetchedAt() {
   }
 }
 
-async function loadNews() {
+function showCachedNews() {
   newsPosts = readCache(NEWS_CACHE_KEY);
   releaseNotes = readCache(RELEASES_CACHE_KEY);
   renderNewsGrid();
+}
+
+async function refreshNews() {
   const [news, releases] = await Promise.allSettled([
     invoke('get_vk_news'),
     // У GitHub строгий лимит запросов без авторизации, поэтому история обновляется редко.
     releasesAreFresh() ? Promise.resolve(null) : invoke('get_launcher_releases'),
   ]);
   if (news.status === 'fulfilled' && news.value?.success && news.value.posts?.length > 0) {
-    newsPosts = news.value.posts;
+    const posts = news.value.posts;
+    freshPostIds = [...new Set([...freshPostIds, ...unseenPostIds(posts, readCache(NEWS_SEEN_KEY))])];
+    writeCache(NEWS_SEEN_KEY, posts.map((post) => post.id));
+    newsPosts = posts;
     writeCache(NEWS_CACHE_KEY, newsPosts);
   }
   if (releases.status === 'fulfilled' && releases.value?.length > 0) {
@@ -298,7 +200,7 @@ let glassModalOpener = null;
 
 /** Пока открыто окно, основной интерфейс недоступен и для клавиатуры. */
 function setBackgroundInert(inert) {
-  document.querySelectorAll('body > header, body > .flex-1').forEach((element) => {
+  document.querySelectorAll('body > header, #app-shell').forEach((element) => {
     element.inert = inert;
   });
 }
@@ -323,43 +225,18 @@ function closeGlassModal() {
   glassModalOpener?.focus?.();
 }
 
-function newsArticle(post, index) {
-  const images = (post.images?.length ? post.images : [post.image]).map((url) => safeImageUrl(url, '')).filter(Boolean);
-  const shown = images.length > 0 ? images : [imageOf(post)];
-  const url = safeLinkUrl(post.url);
-  return `
-    <article id="news-post-${index}" class="glass-article">
-      <div class="glass-article-images ${shown.length > 1 ? 'is-gallery' : ''}">
-        ${shown.map((src) => `<img src="${escapeHtml(src)}" alt="" loading="lazy" class="news-image" />`).join('')}
-      </div>
-      <div class="glass-article-meta">
-        <span>${escapeHtml(post.date)}</span>
-        ${url ? `<button data-external="${escapeHtml(url)}" class="glass-link">Открыть в браузере</button>` : ''}
-      </div>
-      <h4 class="glass-article-title">${escapeHtml(post.title)}</h4>
-      <p class="glass-article-text selectable-console">${escapeHtml(post.text)}</p>
-    </article>`;
-}
-
 function openNewsModal(index) {
-  const posts = newsPosts.length > 0 ? newsPosts : FALLBACK_NEWS;
-  openGlassModal({ title: 'Новости FenixCraft', html: posts.map(newsArticle).join('') });
+  openGlassModal({ title: 'Новости FenixCraft', html: newsArticlesHtml(newsPosts) });
   byId(`news-post-${index}`)?.scrollIntoView({ block: 'start' });
+  // Открытые новости больше не считаются новыми.
+  if (freshPostIds.length > 0) {
+    freshPostIds = [];
+    renderNewsGrid();
+  }
 }
 
 function openUpdatesModal() {
-  const body = releaseNotes.length > 0
-    ? releaseNotes.map((release) => `
-      <article class="glass-article">
-        <div class="glass-article-meta">
-          <span>${escapeHtml(formatReleaseDate(release.date))}</span>
-          <button data-external="${escapeHtml(safeLinkUrl(release.url) || 'https://github.com/BloodRayT/launcher/releases')}" class="glass-link">Страница релиза</button>
-        </div>
-        <h4 class="glass-article-title">${escapeHtml(release.name)}</h4>
-        <div class="glass-markdown selectable-console">${renderMarkdown(release.body) || '<p>Описание для этой версии не добавлено.</p>'}</div>
-      </article>`).join('')
-    : '<p class="glass-article-text">История обновлений пока недоступна. Проверьте подключение к интернету.</p>';
-  openGlassModal({ title: 'Обновления лаунчера', html: body });
+  openGlassModal({ title: 'Обновления лаунчера', html: releasesHtml(releaseNotes) });
 }
 
 function openTwitchModal() {
@@ -368,17 +245,7 @@ function openTwitchModal() {
   openGlassModal({
     title: 'Трансляция BloodRayT',
     wide: true,
-    html: `
-      <div class="twitch-layout">
-        <iframe class="twitch-player" title="Плеер Twitch" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen
-                src="https://player.twitch.tv/?channel=${TWITCH_CHANNEL}&parent=${parent}&autoplay=true"></iframe>
-        <iframe class="twitch-chat" title="Чат Twitch"
-                src="https://www.twitch.tv/embed/${TWITCH_CHANNEL}/chat?parent=${parent}&darkpopout"></iframe>
-      </div>
-      <div class="glass-article-meta twitch-footer">
-        <span>Плеер разворачивается на весь экран кнопкой в его правом нижнем углу</span>
-        <button data-external="${TWITCH_URL}" class="glass-link">Открыть в браузере</button>
-      </div>`,
+    html: twitchHtml(parent),
   });
 }
 
@@ -390,28 +257,7 @@ function activeServers() {
 }
 
 function renderServers(statusById) {
-  const html = activeServers().map((server) => {
-    const status = statusById[server.id];
-    const selected = currentConfig.selectedServer === server.ip;
-    return `
-      <div role="button" tabindex="0" data-server-ip="${escapeHtml(server.ip)}"
-           class="glass-card p-3 rounded-xl flex items-center justify-between cursor-pointer transition border ${selected ? 'border-emerald-500 bg-emerald-500/10' : 'border-white/5 hover:border-white/20'}">
-        <div class="flex items-center space-x-3 min-w-0">
-          <div class="w-9 h-9 rounded-full bg-slate-800 flex items-center justify-center text-base shrink-0">${escapeHtml(server.icon)}</div>
-          <div class="min-w-0">
-            <div class="text-xs font-bold text-white truncate">${escapeHtml(server.name)}</div>
-            <div class="text-[10px] text-slate-400 truncate">${escapeHtml(server.desc)} • ${escapeHtml(server.ip)}</div>
-          </div>
-        </div>
-        <div class="text-xs font-semibold flex items-center space-x-1.5 shrink-0 pl-2 ${status?.online ? 'text-emerald-400' : 'text-slate-500'}">
-          <span class="w-2 h-2 rounded-full ${status?.online ? 'bg-emerald-400' : 'bg-red-500'}"></span>
-          <span>${escapeHtml(serverStatusLabel(status))}</span>
-        </div>
-      </div>
-    `;
-  }).join('');
-  byId('servers-list').innerHTML = html;
-  byId('servers-full-list').innerHTML = html;
+  byId('servers-list').innerHTML = serversHtml(activeServers(), statusById, currentConfig.selectedServer);
 }
 
 async function refreshServers() {
@@ -424,27 +270,6 @@ async function refreshServers() {
   renderServers(statuses);
 }
 
-async function saveCustomServer() {
-  const name = byId('new-srv-name').value.trim();
-  const ip = byId('new-srv-ip').value.trim();
-  if (!name || !ip) return;
-  const list = activeServers();
-  const existing = list.findIndex((server) => server.ip.toLowerCase() === ip.toLowerCase() || server.name.toLowerCase() === name.toLowerCase());
-  const item = {
-    id: existing >= 0 ? list[existing].id : `srv-${Date.now()}`,
-    name,
-    desc: byId('new-srv-desc').value.trim() || 'Сервер FenixCraft',
-    ip,
-    port: Number.parseInt(byId('new-srv-port').value, 10) || 25565,
-    icon: existing >= 0 ? list[existing].icon : '🦅',
-    maxDefault: 1000,
-  };
-  const updated = existing >= 0 ? list.with(existing, item) : [...list, item];
-  await persistConfig({ customServers: updated, selectedServer: ip });
-  for (const id of ['new-srv-name', 'new-srv-desc', 'new-srv-ip']) byId(id).value = '';
-  await refreshServers();
-}
-
 // --- Настройки ---
 
 let saveTimer = null;
@@ -452,11 +277,9 @@ let flushSave = () => Promise.resolve();
 
 function bindSettings() {
   const fields = {
-    username: byId('cfg-username'), ram: byId('cfg-ram'), width: byId('cfg-width'), height: byId('cfg-height'),
+    ram: byId('cfg-ram'), width: byId('cfg-width'), height: byId('cfg-height'),
     java: byId('cfg-java'), args: byId('cfg-args'), console: byId('cfg-console'), debug: byId('cfg-debug'),
-    version: byId('select-version'),
   };
-  fields.username.value = currentConfig.username;
   fields.ram.value = currentConfig.ram;
   byId('ram-label').textContent = `${currentConfig.ram} МБ`;
   fields.width.value = currentConfig.width;
@@ -465,13 +288,8 @@ function bindSettings() {
   fields.args.value = currentConfig.jvmArgs;
   fields.console.checked = currentConfig.showConsole;
   fields.debug.checked = currentConfig.debugMode;
-  fields.version.value = VALID_PROFILES.includes(currentConfig.selectedVersion) ? currentConfig.selectedVersion : VALID_PROFILES[0];
-
-  const selectedProfileName = () => fields.version.options[fields.version.selectedIndex]?.text || 'Vanilla';
-  byId('last-launch-ver').textContent = selectedProfileName();
 
   const collect = () => ({
-    username: fields.username.value.trim(),
     ram: Number.parseInt(fields.ram.value, 10) || currentConfig.ram,
     width: Number.parseInt(fields.width.value, 10) || currentConfig.width,
     height: Number.parseInt(fields.height.value, 10) || currentConfig.height,
@@ -479,15 +297,11 @@ function bindSettings() {
     jvmArgs: fields.args.value.trim(),
     showConsole: fields.console.checked,
     debugMode: fields.debug.checked,
-    selectedVersion: fields.version.value,
   });
 
   const save = async () => {
     saveTimer = null;
     await persistConfig(collect());
-    renderProfile();
-    renderShop();
-    byId('last-launch-ver').textContent = selectedProfileName();
   };
   flushSave = () => {
     if (saveTimer === null) return Promise.resolve();
@@ -509,6 +323,96 @@ function bindSettings() {
       fields.java.value = selected;
       scheduleSave();
     }
+  });
+  bindGameDir();
+}
+
+async function refreshGameDir() {
+  try {
+    byId('cfg-game-dir').value = (await invoke('get_game_dir')) || '';
+  } catch {
+    byId('cfg-game-dir').value = '';
+  }
+  byId('btn-reset-game-dir').classList.toggle('hidden', !currentConfig.gameDirPath);
+}
+
+async function applyGameDir(path) {
+  await flushSave();
+  // Смена папки идёт в той же очереди, что и сохранения, иначе параллельное сохранение вернуло бы старый путь.
+  pendingSave = pendingSave.then(async () => {
+    try {
+      currentConfig = await invoke('set_game_dir', { path });
+    } catch (error) {
+      showError({ title: 'Папка не изменена', message: String(error), hint: 'Выберите папку, в которую можно записывать файлы, например на другом диске.' });
+    }
+    return currentConfig;
+  });
+  await pendingSave;
+  await refreshGameDir();
+}
+
+function openGameDir() {
+  invoke('open_game_dir').catch((error) => showError({ title: 'Папка не открылась', message: String(error), hint: '' }));
+}
+
+function bindGameDir() {
+  byId('btn-change-game-dir').addEventListener('click', async () => {
+    if (!tauriDialog?.open) return;
+    const selected = await tauriDialog.open({ directory: true, multiple: false, title: 'Папка для файлов игры', defaultPath: byId('cfg-game-dir').value || undefined });
+    if (selected) await applyGameDir(selected);
+  });
+  byId('btn-reset-game-dir').addEventListener('click', () => applyGameDir(''));
+  byId('btn-open-game-dir').addEventListener('click', openGameDir);
+  byId('btn-hero-folder').addEventListener('click', openGameDir);
+}
+
+// --- Персонаж ---
+
+let skinStage = null;
+
+async function applySkin() {
+  byId('btn-skin-reset').classList.toggle('hidden', !currentConfig.skinData);
+  if (!skinStage) return;
+  try {
+    await skinStage.setSkin(currentConfig.skinData || DEFAULT_SKIN);
+  } catch {
+    await skinStage.setSkin(DEFAULT_SKIN).catch(() => {});
+  }
+}
+
+function bindSkin() {
+  skinStage = createSkinStage({ canvas: byId('skin-canvas'), fallback: byId('skin-fallback') });
+  skinStage?.setName(displayName());
+  applySkin();
+
+  document.querySelectorAll('[data-skin-pose]').forEach((button) => {
+    button.addEventListener('click', () => {
+      document.querySelectorAll('[data-skin-pose]').forEach((other) => other.setAttribute('aria-pressed', String(other === button)));
+      skinStage?.setPose(button.dataset.skinPose);
+    });
+  });
+
+  const input = byId('skin-file-input');
+  byId('btn-skin-change').addEventListener('click', () => input.click());
+  input.addEventListener('change', async () => {
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) return;
+    if (file.size > MAX_SKIN_BYTES) {
+      showError({ title: 'Скин не загружен', message: 'Файл больше 32 КБ.', hint: 'Скин Minecraft — это PNG 64×64, обычно он весит несколько килобайт.' });
+      return;
+    }
+    try {
+      const skinData = await readSkinFile(file);
+      await persistConfig({ skinData });
+      await applySkin();
+    } catch (error) {
+      showError({ title: 'Скин не загружен', message: error.message, hint: 'Скачайте скин в формате PNG, например на сайте со скинами.' });
+    }
+  });
+  byId('btn-skin-reset').addEventListener('click', async () => {
+    await persistConfig({ skinData: '' });
+    await applySkin();
   });
 }
 
@@ -543,8 +447,7 @@ function renderProfile() {
   byId('sidebar-username').textContent = displayName() || 'Новый игрок';
   const nickInput = byId('sidebar-nick-input');
   if (document.activeElement !== nickInput) nickInput.value = currentConfig.username || '';
-  const settingsUsername = byId('cfg-username');
-  if (document.activeElement !== settingsUsername) settingsUsername.value = currentConfig.username || '';
+  skinStage?.setName(displayName());
 }
 
 function flashAuthMessage(text) {
@@ -564,7 +467,7 @@ function cropAvatar(image) {
   return canvas.toDataURL('image/webp', 0.85);
 }
 
-function bindProfile() {
+function bindAvatar() {
   const avatarImg = byId('sidebar-avatar-img');
   const avatarInput = byId('avatar-file-input');
   if (currentConfig.avatarData) avatarImg.src = currentConfig.avatarData;
@@ -592,7 +495,10 @@ function bindProfile() {
     };
     reader.readAsDataURL(file);
   });
+}
 
+function bindProfile() {
+  bindAvatar();
   document.querySelectorAll('[data-account-tab]').forEach((tab) => {
     tab.addEventListener('click', () => selectAccountTab(tab.dataset.accountTab));
   });
@@ -651,7 +557,7 @@ function bindProfile() {
 
 function refreshProfileViews() {
   renderProfile();
-  renderShop();
+  byId('shop-grid').innerHTML = shopGridHtml(displayName());
 }
 
 async function selectAccountTab(tab) {
@@ -697,8 +603,9 @@ function resetPlayState() {
 
 async function startGame() {
   await flushSave();
-  setPlayState('Подготовка...', true);
-  byId('progress-status').textContent = 'Проверка файлов...';
+  await pendingSave;
+  setPlayState('Подготовка…', true);
+  byId('progress-status').textContent = 'Проверка файлов…';
   byId('progress-percent').textContent = '';
   byId('progress-bar').style.width = '0%';
   byId('progress-container').classList.remove('hidden');
@@ -731,62 +638,6 @@ function bindGameEvents() {
   tauriEvent.listen('game:closed', resetPlayState);
 }
 
-// --- Консоль ---
-
-let consoleLines = [];
-let consoleFlushScheduled = false;
-
-function renderConsole() {
-  consoleFlushScheduled = false;
-  const output = byId('console-output');
-  output.textContent = consoleLines.join('\n');
-  output.scrollTop = output.scrollHeight;
-}
-
-function appendConsole(line) {
-  consoleLines.push(line);
-  if (consoleLines.length > MAX_CONSOLE_LINES) consoleLines = consoleLines.slice(-MAX_CONSOLE_LINES);
-  if (!consoleFlushScheduled) {
-    consoleFlushScheduled = true;
-    requestAnimationFrame(renderConsole);
-  }
-}
-
-function bindConsole() {
-  byId('btn-clear-console').addEventListener('click', () => {
-    consoleLines = [];
-    renderConsole();
-  });
-  const copyButton = byId('btn-copy-console');
-  copyButton.addEventListener('click', async () => {
-    const selected = window.getSelection()?.toString();
-    try {
-      await navigator.clipboard.writeText(selected || consoleLines.join('\n'));
-      const original = copyButton.textContent;
-      copyButton.textContent = '✅ Скопировано';
-      setTimeout(() => { copyButton.textContent = original; }, 2000);
-    } catch (error) {
-      appendConsole(`[Консоль] Не удалось скопировать: ${error}`);
-    }
-  });
-  byId('btn-save-debug').addEventListener('click', async () => {
-    const customPath = await tauriDialog?.save?.({
-      title: 'Сохранить журнал лаунчера',
-      defaultPath: 'fenixcraft-debug.log',
-      filters: [{ name: 'Log Files', extensions: ['log', 'txt'] }],
-    });
-    try {
-      const path = await invoke('save_debug_log', { consoleText: consoleLines.join('\n'), customPath: customPath ?? null });
-      appendConsole(`[Консоль] Журнал сохранён: ${path}`);
-    } catch (error) {
-      appendConsole(`[Консоль] Не удалось сохранить журнал: ${error}`);
-    }
-  });
-  byId('btn-verify-assets').addEventListener('click', () => {
-    invoke('verify_assets_command').catch((error) => appendConsole(`[Проверка] Ошибка: ${error}`));
-  });
-}
-
 // --- Статус сети, Twitch и обновления ---
 
 const CONNECTIVITY_TONES = {
@@ -807,12 +658,12 @@ async function refreshConnectivity() {
   const label = connectivityLabel(state);
   const tone = CONNECTIVITY_TONES[label.tone];
   const pill = byId('network-status');
-  pill.className = `flex items-center space-x-1.5 text-[11px] font-medium no-drag ${tone.text}`;
+  pill.className = `flex items-center gap-1.5 text-[11px] font-medium pr-2 ${tone.text}`;
   pill.title = label.hint;
   byId('network-dot').className = `w-1.5 h-1.5 rounded-full ${tone.dot}`;
   byId('network-text').textContent = label.text;
   if (state.internet && !wasInternetAvailable) {
-    loadNews();
+    refreshNews();
     refreshServers();
   }
   wasInternetAvailable = state.internet;
@@ -827,40 +678,6 @@ async function updateTwitchStatus() {
   }
   byId('btn-twitch-nav').classList.toggle('twitch-live-active', live);
   byId('twitch-live-badge').classList.toggle('hidden', !live);
-}
-
-async function checkForUpdates() {
-  let update;
-  try {
-    update = await invoke('check_launcher_update');
-  } catch {
-    return;
-  }
-  if (!update?.updateAvailable) return;
-
-  const modal = byId('update-modal');
-  const headerButton = byId('btn-update-launcher');
-  byId('update-version-label').textContent = `Доступна версия v${update.latestVersion}`;
-  byId('update-changelog').textContent = update.changelog || 'Улучшена стабильность и исправлены ошибки.';
-  headerButton.textContent = `⬇ Обновить до v${update.latestVersion}`;
-  headerButton.classList.remove('hidden');
-  headerButton.addEventListener('click', () => modal.classList.remove('hidden'));
-  byId('btn-update-later').addEventListener('click', () => modal.classList.add('hidden'));
-  const installButton = byId('btn-update-now');
-  installButton.addEventListener('click', async () => {
-    installButton.disabled = true;
-    installButton.textContent = 'Загрузка...';
-    try {
-      await invoke('install_launcher_update', { downloadUrl: update.downloadUrl });
-    } catch (error) {
-      modal.classList.add('hidden');
-      showError({ title: 'Обновление не установлено', message: String(error), hint: 'Попробуйте позже или скачайте лаунчер со страницы релизов.' });
-    } finally {
-      installButton.disabled = false;
-      installButton.textContent = 'Обновить сейчас';
-    }
-  });
-  modal.classList.remove('hidden');
 }
 
 // --- Общие обработчики ---
@@ -884,14 +701,19 @@ function activateElement(target) {
     openUrl(`${SHOP_URL}?nickname=${nickname}&item=${encodeURIComponent(buy.dataset.buy)}`);
     return;
   }
+  const build = target.closest('[data-build]');
+  if (build) {
+    selectBuild(build.dataset.build);
+    return;
+  }
   const server = target.closest('[data-server-ip]');
   if (server) {
     persistConfig({ selectedServer: server.dataset.serverIp }).then(refreshServers);
     return;
   }
-  const newsCardElement = target.closest('[data-open-news]');
-  if (newsCardElement) {
-    openNewsModal(Number(newsCardElement.dataset.openNews));
+  const newsCard = target.closest('[data-open-news]');
+  if (newsCard) {
+    openNewsModal(Number(newsCard.dataset.openNews));
     return;
   }
   if (target.closest('[data-open-updates]')) {
@@ -899,16 +721,7 @@ function activateElement(target) {
     return;
   }
   const tabLink = target.closest('[data-open-tab]');
-  if (tabLink) {
-    switchTab(tabLink.dataset.openTab);
-    return;
-  }
-  const profile = target.closest('[data-select-profile]');
-  if (profile) {
-    const select = byId('select-version');
-    select.value = profile.dataset.selectProfile;
-    select.dispatchEvent(new Event('input'));
-  }
+  if (tabLink) switchTab(tabLink.dataset.openTab);
 }
 
 function bindDelegatedActions() {
@@ -922,7 +735,8 @@ function bindDelegatedActions() {
     const isRoleButton = event.target.getAttribute?.('role') === 'button';
     if (isRoleButton && (event.key === 'Enter' || event.key === ' ')) {
       event.preventDefault();
-      activateElement(event.target);
+      if (event.target.id === 'avatar-container') byId('avatar-file-input').click();
+      else activateElement(event.target);
     }
   });
   // Если картинка новости не загрузилась, показываем локальный баннер.
@@ -933,7 +747,7 @@ function bindDelegatedActions() {
     }
   }, true);
 
-  document.querySelectorAll('.nav-btn').forEach((button) => {
+  document.querySelectorAll('.nav-btn[data-tab]').forEach((button) => {
     button.addEventListener('click', () => switchTab(button.dataset.tab));
   });
   byId('btn-play').addEventListener('click', startGame);
@@ -946,13 +760,8 @@ function bindDelegatedActions() {
   document.addEventListener('fullscreenchange', () => {
     invoke('window_set_fullscreen', { fullscreen: Boolean(document.fullscreenElement) }).catch(() => {});
   });
-  byId('btn-refresh-news').addEventListener('click', loadNews);
+  byId('btn-refresh-news').addEventListener('click', refreshNews);
   byId('btn-ping-servers').addEventListener('click', refreshServers);
-  byId('btn-save-server').addEventListener('click', saveCustomServer);
-  byId('btn-reset-servers').addEventListener('click', async () => {
-    await persistConfig({ customServers: SERVER_DEFAULTS });
-    await refreshServers();
-  });
   byId('btn-error-close').addEventListener('click', hideError);
   byId('btn-error-console').addEventListener('click', () => {
     hideError();
@@ -966,23 +775,29 @@ async function showLauncherVersion() {
 }
 
 async function start() {
+  startEmbers(byId('bg-embers'));
   bindWindowControls();
   bindDelegatedActions();
   bindConsole();
   bindGameEvents();
+  bindBuildKeys();
 
   currentConfig = await invoke('get_config');
   accountTab = isLicensed() ? 'microsoft' : 'offline';
   microsoftAvailable = Boolean(await invoke('ms_login_available'));
+  renderBuilds();
+  renderHero(false);
   bindSettings();
   bindProfile();
-  renderProfile();
-  renderShop();
+  bindSkin();
+  refreshProfileViews();
   renderServers({});
+  showCachedNews();
 
   // Интерфейс уже готов: сетевые данные догружаются в фоне и не задерживают запуск.
   showLauncherVersion();
-  loadNews();
+  refreshGameDir();
+  refreshNews();
   refreshServers();
   refreshConnectivity();
   updateTwitchStatus();
@@ -990,6 +805,7 @@ async function start() {
   setInterval(refreshServers, REFRESH_INTERVAL_MS);
   setInterval(updateTwitchStatus, REFRESH_INTERVAL_MS);
   setInterval(refreshConnectivity, CONNECTIVITY_INTERVAL_MS);
+  setInterval(refreshNews, NEWS_REFRESH_MS);
 }
 
 start().catch((error) => showError({ title: 'Лаунчер запустился с ошибкой', message: String(error), hint: 'Перезапустите лаунчер.' }));
