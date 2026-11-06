@@ -96,13 +96,13 @@ cd src-tauri && cargo run -p fenix-core --example smoke_launch -- /путь/к/�
 
 ### Установка на Ubuntu 24
 
-Скрипт ставит Docker, запускает бекенд в `/opt/fenixcraft` и подключает адрес `/api/launcher/` к сайту nginx с `root /var/www/html`. Сам сайт не меняется, копия конфига nginx сохраняется в `/root`.
+Скрипт ставит Docker, запускает бекенд в `/opt/fenixcraft` и подключает адрес `/api/launcher/` к веб-серверу, который уже отдаёт сайт из `/var/www/html` (Apache или nginx). Сам сайт не меняется.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/BloodRayT/launcher/main/backend/deploy/install.sh | sudo bash
 ```
 
-Файлы сборки кладутся в `/opt/fenixcraft/backend/storage/<сборка>/` (`mods`, `shaderpacks`, `resourcepacks`, `config`, `options.txt`), перезапуск не нужен. Для `1.21.1-iris-neoforge` нужны Sodium и Iris в версиях для NeoForge 1.21.1. Порт 8000 открыт только для nginx на этом же сервере.
+Файлы сборки кладутся в `/opt/fenixcraft/backend/storage/<сборка>/` (`mods`, `shaderpacks`, `resourcepacks`, `config`, `options.txt`), перезапуск не нужен. Для `1.21.1-iris-neoforge` нужны Sodium и Iris в версиях для NeoForge 1.21.1. Порт 8000 открыт только для веб-сервера на этом же сервере.
 
 ## 🔑 Вход через Microsoft
 
