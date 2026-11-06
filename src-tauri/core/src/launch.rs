@@ -875,6 +875,9 @@ mod tests {
         assert_eq!(loader_of("1.21.11-iris-fabric"), Loader::Fabric);
         assert_eq!(loader_of("1.21.1-neoforge"), Loader::NeoForge);
         assert_eq!(loader_of("1.21.1-iris-neoforge"), Loader::NeoForge);
+        assert_eq!(loader_of("26.2-iris-neoforge"), Loader::NeoForge);
+        assert!(wants_shaders("26.2-iris-neoforge"));
+        assert_eq!(base_version("26.2-iris-neoforge"), Some("26.2"));
     }
 
     #[test]

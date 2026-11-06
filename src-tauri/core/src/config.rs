@@ -7,13 +7,16 @@ const DEFAULT_BACKEND_URL: &str = "http://fenixcraft.ru/api/launcher";
 /// Адрес из прежних версий: сайт пока работает только по HTTP.
 const OLD_BACKEND_URL: &str = "https://fenixcraft.ru/api/launcher";
 const DEFAULT_JVM_ARGS: &str = "-XX:+UnlockExperimentalVMOptions -XX:+UseG1GC -XX:G1NewSizePercent=20 -XX:G1ReservePercent=20 -XX:MaxGCPauseMillis=50 -XX:G1HeapRegionSize=32M";
-/// Сборки лаунчера. Версии совпадают с серверами: Purpur 26.3 и NeoForge 1.21.1.
-pub const PROFILES: [&str; 4] = [
+/// Сборки лаунчера. Версии совпадают с серверами: Purpur 26.3, NeoForge 1.21.1 и NeoForge 26.2.
+pub const PROFILES: [&str; 5] = [
     "26.3-vanilla",
     "26.3-iris",
     "1.21.1-neoforge",
     "1.21.1-iris-neoforge",
+    "26.2-iris-neoforge",
 ];
+/// Скин хранится в конфиге как data URL; файл 64×64 занимает несколько килобайт.
+pub const MAX_SKIN_DATA_LEN: usize = 64 * 1024;
 const DEFAULT_PROFILE: &str = PROFILES[0];
 /// Серверы из прежних версий, которых больше нет.
 const REMOVED_SERVER_IDS: [&str; 2] = ["fenix-rpg", "fenix-pvp"];
@@ -148,6 +151,12 @@ pub struct LauncherConfig {
     pub ms_username: String,
     #[serde(default)]
     pub ms_uuid: String,
+    /// Папка игровых файлов, выбранная игроком. Пустая строка — папка лаунчера.
+    #[serde(default)]
+    pub game_dir_path: String,
+    /// Скин персонажа для просмотра в лаунчере (PNG как data URL).
+    #[serde(default)]
+    pub skin_data: String,
 }
 
 impl Default for LauncherConfig {
@@ -169,6 +178,8 @@ impl Default for LauncherConfig {
             avatar_data: String::new(),
             ms_username: String::new(),
             ms_uuid: String::new(),
+            game_dir_path: String::new(),
+            skin_data: String::new(),
         }
     }
 }
@@ -204,6 +215,12 @@ impl LauncherConfig {
             } else {
                 self.selected_server
             },
+            game_dir_path: normalized_game_dir(&self.game_dir_path),
+            skin_data: if self.skin_data.len() > MAX_SKIN_DATA_LEN {
+                String::new()
+            } else {
+                self.skin_data
+            },
             ..self
         }
     }
@@ -216,6 +233,27 @@ pub fn game_dir() -> PathBuf {
         .join(".fenixcraft");
     let _ = std::fs::create_dir_all(&dir);
     dir
+}
+
+/// Принимается только абсолютный путь: относительный зависел бы от папки запуска лаунчера.
+fn normalized_game_dir(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if Path::new(trimmed).is_absolute() {
+        trimmed.to_string()
+    } else {
+        String::new()
+    }
+}
+
+/// Корень игровых файлов: версии, библиотеки, ассеты и папки сборок.
+/// Конфиг и установщик обновлений всегда остаются в [`game_dir`].
+pub fn files_root(config: &LauncherConfig) -> PathBuf {
+    let custom = normalized_game_dir(&config.game_dir_path);
+    if custom.is_empty() {
+        game_dir()
+    } else {
+        PathBuf::from(custom)
+    }
 }
 
 pub fn official_minecraft_dir() -> PathBuf {
@@ -388,6 +426,58 @@ mod tests {
         assert_eq!(config.custom_servers.len(), 2);
         assert_eq!(config.custom_servers[0].desc, "Vanilla • 26.3");
         assert_eq!(config.custom_servers[1], mine);
+    }
+
+    #[test]
+    fn neoforge_26_2_with_shaders_is_a_known_profile() {
+        let config = LauncherConfig {
+            selected_version: "26.2-iris-neoforge".to_string(),
+            ..LauncherConfig::default()
+        }
+        .normalized();
+
+        assert_eq!(config.selected_version, "26.2-iris-neoforge");
+    }
+
+    #[test]
+    fn game_files_live_in_the_launcher_folder_by_default() {
+        let config = LauncherConfig::default();
+
+        assert_eq!(files_root(&config), game_dir());
+    }
+
+    #[test]
+    fn chosen_game_folder_is_used_for_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = LauncherConfig {
+            game_dir_path: dir.path().to_string_lossy().to_string(),
+            ..LauncherConfig::default()
+        }
+        .normalized();
+
+        assert_eq!(files_root(&config), dir.path());
+    }
+
+    #[test]
+    fn relative_game_folder_is_ignored() {
+        let config = LauncherConfig {
+            game_dir_path: "games/fenix".to_string(),
+            ..LauncherConfig::default()
+        }
+        .normalized();
+
+        assert_eq!(config.game_dir_path, "");
+    }
+
+    #[test]
+    fn oversized_skin_is_dropped() {
+        let config = LauncherConfig {
+            skin_data: "a".repeat(MAX_SKIN_DATA_LEN + 1),
+            ..LauncherConfig::default()
+        }
+        .normalized();
+
+        assert_eq!(config.skin_data, "");
     }
 
     #[test]

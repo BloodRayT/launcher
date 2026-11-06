@@ -9,7 +9,7 @@ INSTALL_DIR="/opt/fenixcraft"
 WEB_ROOT="/var/www/html"
 BACKEND="http://127.0.0.1:8000"
 HEALTH_PATH="/api/launcher/health"
-PROFILES=("1.21.1-neoforge" "1.21.1-iris-neoforge")
+PROFILES=("1.21.1-neoforge" "1.21.1-iris-neoforge" "26.2-iris-neoforge")
 PROFILE_DIRS=(mods shaderpacks resourcepacks config)
 APACHE_CONF="fenixcraft-launcher"
 NGINX_SNIPPET="/etc/nginx/snippets/fenixcraft-launcher.conf"
@@ -128,7 +128,10 @@ main() {
   log "Проверка через ${web_server}"
   curl -fsS -H "Host: fenixcraft.ru" "http://127.0.0.1${HEALTH_PATH}" \
     || fail "${web_server} не передаёт запросы бекенду"
-  printf '\n\nГотово. Моды кладите в %s/backend/storage/1.21.1-iris-neoforge/mods\n' "${INSTALL_DIR}"
+  printf '\n\nГотово. Моды кладите в папки сборок:\n'
+  for profile in "${PROFILES[@]}"; do
+    printf '  %s/backend/storage/%s/mods\n' "${INSTALL_DIR}" "${profile}"
+  done
 }
 
 main "$@"

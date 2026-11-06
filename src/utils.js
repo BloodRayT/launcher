@@ -81,6 +81,31 @@ export function formatReleaseDate(iso) {
   return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString('ru-RU');
 }
 
+/**
+ * Позиции карточек, содержимое которых изменилось. Перерисовываются только они,
+ * поэтому лента не мигает и картинки не загружаются заново.
+ * @param {string[]} previous подписи прежних карточек @param {string[]} next подписи новых
+ * @returns {number[]}
+ */
+export function changedSlots(previous, next) {
+  return next.flatMap((signature, index) => (previous[index] === signature ? [] : [index]));
+}
+
+/**
+ * Записи, которых не было при прошлой проверке. При первой загрузке новыми ничего не считается.
+ * @param {{id: unknown}[]} posts @param {unknown[]} seenIds @returns {unknown[]}
+ */
+export function unseenPostIds(posts, seenIds) {
+  if (seenIds.length === 0) return [];
+  const seen = new Set(seenIds);
+  return posts.map((post) => post.id).filter((id) => !seen.has(id));
+}
+
+/** @param {number} width @param {number} height @returns {boolean} подходит ли картинка как скин Minecraft */
+export function isSkinSize(width, height) {
+  return width === 64 && (height === 64 || height === 32);
+}
+
 /** Запасная картинка новости: один и тот же пост всегда получает одну и ту же. */
 export function pickLocalImage(seed, images) {
   const hash = [...String(seed ?? '')].reduce((sum, char) => (sum * 31 + char.codePointAt(0)) % 9973, 7);
