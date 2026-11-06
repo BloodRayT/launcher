@@ -94,6 +94,16 @@ cd src-tauri && cargo run -p fenix-core --example smoke_launch -- /путь/к/�
 
 Новости и статус стрима идут через бекенд, поэтому токены VK и Twitch хранятся только на сервере.
 
+### Установка на Ubuntu 24
+
+Скрипт ставит Docker, запускает бекенд в `/opt/fenixcraft` и подключает адрес `/api/launcher/` к сайту nginx с `root /var/www/html`. Сам сайт не меняется, копия конфига nginx сохраняется в `/root`.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/BloodRayT/launcher/main/backend/deploy/install.sh | sudo bash
+```
+
+Файлы сборки кладутся в `/opt/fenixcraft/backend/storage/<сборка>/` (`mods`, `shaderpacks`, `resourcepacks`, `config`, `options.txt`), перезапуск не нужен. Для `1.21.1-iris-neoforge` нужны Sodium и Iris в версиях для NeoForge 1.21.1. Порт 8000 открыт только для nginx на этом же сервере.
+
 ## 🔑 Вход через Microsoft
 
 1. Зарегистрируйте приложение на [портале Azure](https://portal.azure.com): App registrations → New registration, тип учётных записей «Personal Microsoft accounts only». В разделе Authentication включите «Allow public client flows». Секрет приложения не нужен.
