@@ -67,7 +67,8 @@ export function createSkinStage({ canvas, fallback }) {
       viewer.animation = (POSES[name] ?? POSES.idle)(lib);
     },
     setName(name) {
-      viewer.nameTag = name || null;
+      // Ник над головой пиксельным шрифтом лаунчера; библиотека перерисует его, когда шрифт загрузится.
+      viewer.nameTag = name ? new lib.NameTagObject(name, { font: '48px "Pixelify Sans"', textStyle: '#e8fff2' }) : null;
     },
   };
 }

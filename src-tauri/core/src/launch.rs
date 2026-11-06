@@ -1,6 +1,6 @@
 use crate::assets::ensure_assets;
 use crate::backend_sync::{sync_profile, SyncOutcome};
-use crate::config::LauncherConfig;
+use crate::config::{LauncherConfig, DEFAULT_SERVER_PORT};
 use crate::download::{
     download_client, ensure_files, probe_client, write_atomic, DownloadItem, Expected,
 };
@@ -501,8 +501,34 @@ fn game_args(config: &LauncherConfig, game_dir: &Path, game: &GameArgs<'_>) -> V
     ];
     pairs
         .into_iter()
+        .chain(quick_play_target(config).map(|target| ("--quickPlayMultiplayer", target)))
         .flat_map(|(name, value)| [name.to_string(), value])
         .collect()
+}
+
+/// Адрес выбранного сервера для входа сразу после запуска (Minecraft 1.20 и новее).
+fn quick_play_target(config: &LauncherConfig) -> Option<String> {
+    let host = config.selected_server.trim();
+    if !config.auto_join || host.is_empty() {
+        return None;
+    }
+    let server = config
+        .custom_servers
+        .iter()
+        .find(|server| server.ip.eq_ignore_ascii_case(host));
+    // Сервер другой версии не пустит игрока: игра откроет главное меню вместо ошибки подключения.
+    let server_version = server.and_then(|server| version_in(&server.desc));
+    if server_version.is_some() && server_version != base_version(&config.selected_version) {
+        return None;
+    }
+    let port = server.map_or(DEFAULT_SERVER_PORT, |server| server.port);
+    Some(format!("{host}:{port}"))
+}
+
+/// Версия игры из описания сервера, например «NeoForge • 1.21.1» → «1.21.1».
+fn version_in(text: &str) -> Option<&str> {
+    text.split(|ch: char| !(ch.is_ascii_digit() || ch == '.'))
+        .find(|part| part.contains('.') && part.split('.').all(|piece| !piece.is_empty()))
 }
 
 async fn plan_neoforge(
@@ -1034,6 +1060,79 @@ mod tests {
         assert_eq!(value_of("--accessToken"), "mc-token");
         assert_eq!(value_of("--xuid"), "2535");
         assert_eq!(value_of("--userType"), "msa");
+    }
+
+    fn quick_play_of(config: &LauncherConfig) -> Option<String> {
+        let args = game_args(
+            config,
+            Path::new("instance"),
+            &GameArgs {
+                assets_dir: Path::new("assets"),
+                version: "26.3",
+                asset_id: "29",
+                identity: &PlayerIdentity::offline("Fenix"),
+            },
+        );
+        let at = args
+            .iter()
+            .position(|arg| arg == "--quickPlayMultiplayer")?;
+        args.get(at + 1).cloned()
+    }
+
+    #[test]
+    fn game_joins_the_selected_server_right_after_start() {
+        let config = LauncherConfig {
+            selected_server: "play.fenixcraft.ru".to_string(),
+            ..LauncherConfig::default()
+        };
+
+        assert_eq!(
+            quick_play_of(&config).as_deref(),
+            Some("play.fenixcraft.ru:25565")
+        );
+    }
+
+    #[test]
+    fn quick_join_uses_the_port_of_a_custom_server() {
+        let mut custom = crate::config::default_servers();
+        custom[0].ip = "my.server.test".to_string();
+        custom[0].port = 25570;
+        let config = LauncherConfig {
+            selected_server: "my.server.test".to_string(),
+            custom_servers: custom,
+            ..LauncherConfig::default()
+        };
+
+        assert_eq!(
+            quick_play_of(&config).as_deref(),
+            Some("my.server.test:25570")
+        );
+    }
+
+    #[test]
+    fn quick_join_is_skipped_for_a_server_of_another_version() {
+        let config = LauncherConfig {
+            selected_version: "1.21.1-neoforge".to_string(),
+            selected_server: "play.fenixcraft.ru".to_string(),
+            ..LauncherConfig::default()
+        };
+
+        assert_eq!(quick_play_of(&config), None);
+    }
+
+    #[test]
+    fn quick_join_is_skipped_when_turned_off_or_no_server() {
+        let off = LauncherConfig {
+            auto_join: false,
+            ..LauncherConfig::default()
+        };
+        let no_server = LauncherConfig {
+            selected_server: "  ".to_string(),
+            ..LauncherConfig::default()
+        };
+
+        assert_eq!(quick_play_of(&off), None);
+        assert_eq!(quick_play_of(&no_server), None);
     }
 
     #[test]
