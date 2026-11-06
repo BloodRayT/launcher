@@ -11,8 +11,8 @@ export const FALLBACK_NEWS = Object.freeze([
 
 /** Классы выбираются только из этого списка: данные новостей приходят извне. */
 const TAG_CLASSES = new Map([
-  ['amber', 'bg-amber-500 text-slate-950'],
-  ['cyan', 'bg-cyan-500 text-slate-950'],
+  ['amber', 'tag-amber'],
+  ['neon', 'tag-neon'],
 ]);
 
 export function imageOf(post) {
@@ -28,12 +28,12 @@ function cardHtml({ attributes, image, tag, tagClass, title, text, date, fresh }
       </div>
       <div class="news-card-body">
         <div>
-          <h3 class="text-sm font-bold text-white line-clamp-1">${escapeHtml(title)}${fresh ? '<span class="news-fresh-badge">Новое</span>' : ''}</h3>
-          <p class="text-xs text-slate-300 mt-1 line-clamp-3">${escapeHtml(text)}</p>
+          <h3 class="text-sm font-bold text-white line-clamp-2">${escapeHtml(title)}${fresh ? '<span class="news-fresh-badge">Новое</span>' : ''}</h3>
+          <p class="text-xs text-slate-300 mt-1 line-clamp-2">${escapeHtml(text)}</p>
         </div>
-        <div class="text-[11px] text-emerald-300 flex justify-between items-center">
-          <span>${escapeHtml(date)}</span>
-          <span>Подробнее</span>
+        <div class="text-[11px] text-emerald-300 flex justify-between items-center gap-3">
+          <span class="truncate">${escapeHtml(date)}</span>
+          <span class="shrink-0">Подробнее</span>
         </div>
       </div>
     </div>`;
@@ -54,7 +54,7 @@ export function homeCards(posts, releases, freshIds) {
         attributes: 'data-open-news="0"',
         image: imageOf(post),
         tag: post.tag || 'VK.RU/FENIXCRAFT',
-        tagClass: TAG_CLASSES.get(post.tone) ?? 'bg-emerald-500 text-slate-950',
+        tagClass: TAG_CLASSES.get(post.tone) ?? 'tag-emerald',
         title: post.title || 'Новость FenixCraft',
         text: post.text,
         date: post.date,
@@ -67,7 +67,7 @@ export function homeCards(posts, releases, freshIds) {
         attributes: 'data-open-updates="true"',
         image: LOCAL_NEWS_IMAGES[0],
         tag: 'Лаунчер',
-        tagClass: 'bg-cyan-500 text-slate-950',
+        tagClass: 'tag-neon',
         title: latest ? `Обновление ${latest.version}` : 'Обновления лаунчера',
         text: latest ? latest.body.replace(/[#*`]/g, '').trim() || latest.name : 'История версий появится, когда лаунчер свяжется с GitHub.',
         date: latest ? formatReleaseDate(latest.date) : 'GitHub',

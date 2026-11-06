@@ -11,7 +11,7 @@ const previewResponses = {
     username: 'Preview_Player', accountType: 'offline', ram: 6144, width: 1280, height: 720,
     javaPath: '', jvmArgs: '-XX:+UseG1GC', showConsole: false, debugMode: false,
     selectedVersion: '26.2-iris-neoforge', selectedServer: 'play.fenixcraft.ru',
-    customServers: [], avatarData: '', msUsername: '', msUuid: '', gameDirPath: '', skinData: '',
+    customServers: [], avatarData: '', msUsername: '', msUuid: '', gameDirPath: '', skinData: '', autoJoin: true,
   }),
   get_launcher_version: () => 'dev',
   get_game_dir: () => 'C:\\Users\\Player\\AppData\\Roaming\\.fenixcraft',

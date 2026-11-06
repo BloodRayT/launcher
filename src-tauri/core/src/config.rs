@@ -21,6 +21,8 @@ const DEFAULT_PROFILE: &str = PROFILES[0];
 /// Серверы из прежних версий, которых больше нет.
 const REMOVED_SERVER_IDS: [&str; 2] = ["fenix-rpg", "fenix-pvp"];
 const REMOVED_SERVER_ADDRESSES: [&str; 2] = ["rpg.fenixcraft.ru", "pvp.fenixcraft.ru"];
+/// Стандартный порт Minecraft, если у сервера он не указан.
+pub const DEFAULT_SERVER_PORT: u16 = 25565;
 const MIN_RAM_MB: u32 = 1024;
 const MAX_RAM_MB: u32 = 65536;
 const MIN_WINDOW_SIZE: u32 = 320;
@@ -43,7 +45,7 @@ fn server(id: &str, name: &str, desc: &str, ip: &str, icon: &str, max: u32) -> S
         name: name.to_string(),
         desc: desc.to_string(),
         ip: ip.to_string(),
-        port: 25565,
+        port: DEFAULT_SERVER_PORT,
         icon: icon.to_string(),
         max_default: max,
     }
@@ -157,6 +159,13 @@ pub struct LauncherConfig {
     /// Скин персонажа для просмотра в лаунчере (PNG как data URL).
     #[serde(default)]
     pub skin_data: String,
+    /// Заходить на выбранный сервер сразу после запуска игры.
+    #[serde(default = "default_auto_join")]
+    pub auto_join: bool,
+}
+
+fn default_auto_join() -> bool {
+    true
 }
 
 impl Default for LauncherConfig {
@@ -180,6 +189,7 @@ impl Default for LauncherConfig {
             ms_uuid: String::new(),
             game_dir_path: String::new(),
             skin_data: String::new(),
+            auto_join: default_auto_join(),
         }
     }
 }

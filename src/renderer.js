@@ -1,12 +1,15 @@
 import { appendConsole, bindConsole } from './console.js';
 import { byId, hideError, invoke, openUrl, showError, tauriCore, tauriDialog, tauriEvent } from './core.js';
 import { BUILD_IDS, BUILDS, buildById, buildCaption, buildChips } from './builds.js';
-import { startEmbers } from './embers.js';
+import { pulseFrom, startSculk } from './sculk.js';
 import { LOCAL_NEWS_IMAGES, homeCards, newsArticlesHtml, releasesHtml, twitchHtml } from './news.js';
-import { SERVER_DEFAULTS, serversHtml } from './servers.js';
+import { SERVER_DEFAULTS, autoJoinState, serversHtml } from './servers.js';
 import { SHOP_URL, shopGridHtml } from './shop.js';
 import { DEFAULT_SKIN, createSkinStage, readSkinFile } from './skin.js';
 import { checkForUpdates } from './updates.js';
+import { bindAvatar } from './avatar.js';
+import { closeGlassModal, openGlassModal, openModalKind, replaceModalBody } from './modal.js';
+import { readList, readNumber, writeList, writeNumber } from './storage.js';
 import { changedSlots, connectivityLabel, escapeHtml, isValidUsername, unseenPostIds } from './utils.js';
 
 const NEWS_CACHE_KEY = 'fenix.news.v2';
@@ -14,13 +17,12 @@ const NEWS_SEEN_KEY = 'fenix.news.seen';
 const RELEASES_CACHE_KEY = 'fenix.releases.v1';
 const RELEASES_FETCHED_KEY = 'fenix.releases.fetchedAt';
 const RELEASES_REFRESH_MS = 30 * 60 * 1000;
-const NEWS_REFRESH_MS = 5 * 60 * 1000;
+const NEWS_REFRESH_MS = 60 * 1000;
+const NEWS_FOCUS_REFRESH_MS = 20 * 1000;
 const REFRESH_INTERVAL_MS = 30000;
 const CONNECTIVITY_INTERVAL_MS = 60000;
 const SAVE_DEBOUNCE_MS = 300;
-const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
 const MAX_SKIN_BYTES = 32 * 1024;
-const AVATAR_SIZE = 128;
 const TABS = ['home', 'shop', 'settings', 'faq', 'console'];
 
 let currentConfig = {};
@@ -64,9 +66,8 @@ function renderBuilds() {
     const checked = build.id === selected;
     return `
       <button role="radio" aria-checked="${checked}" tabindex="${checked ? 0 : -1}" data-build="${build.id}" class="build-card">
-        ${build.isNew ? '<span class="build-new">Новое</span>' : ''}
         <span class="build-name">${escapeHtml(build.name)}</span>
-        <span class="build-meta">${escapeHtml(buildCaption(build))}</span>
+        <span class="build-meta">${build.isNew ? '<span class="build-new">Новое</span>' : ''}${escapeHtml(buildCaption(build))}</span>
       </button>`;
   }).join('');
 }
@@ -91,7 +92,10 @@ async function selectBuild(id, { focus = false } = {}) {
   currentConfig = { ...currentConfig, selectedVersion: id };
   renderBuilds();
   renderHero(true);
-  if (focus) document.querySelector(`[data-build="${id}"]`)?.focus();
+  renderAutoJoin();
+  const card = document.querySelector(`[data-build="${id}"]`);
+  pulseFrom(card, 0.5);
+  if (focus) card?.focus();
   await persistConfig({ selectedVersion: id });
   if (currentConfig.selectedVersion !== id) {
     renderBuilds();
@@ -129,51 +133,36 @@ function renderNewsGrid() {
     const existing = grid.children[index];
     if (existing) existing.replaceWith(card);
     else grid.append(card);
+    // Свежая запись запускает импульс скалка от своей карточки.
+    if (card.classList.contains('is-fresh')) pulseFrom(card, 0.8);
   }
   homeSignatures = signatures;
 }
 
-function readCache(key) {
-  try {
-    const cached = JSON.parse(localStorage.getItem(key));
-    return Array.isArray(cached) ? cached : [];
-  } catch {
-    return [];
-  }
-}
-
-function writeCache(key, value) {
-  try {
-    localStorage.setItem(key, JSON.stringify(value));
-  } catch {
-    // Кеш необязателен: без него покажутся карточки по умолчанию.
-  }
-}
-
 function releasesAreFresh() {
-  if (readCache(RELEASES_CACHE_KEY).length === 0) return false;
-  try {
-    return Date.now() - Number(localStorage.getItem(RELEASES_FETCHED_KEY)) < RELEASES_REFRESH_MS;
-  } catch {
-    return false;
-  }
-}
-
-function writeReleasesFetchedAt() {
-  try {
-    localStorage.setItem(RELEASES_FETCHED_KEY, String(Date.now()));
-  } catch {
-    // Без отметки времени история просто запросится ещё раз.
-  }
+  return readList(RELEASES_CACHE_KEY).length > 0 && Date.now() - readNumber(RELEASES_FETCHED_KEY) < RELEASES_REFRESH_MS;
 }
 
 function showCachedNews() {
-  newsPosts = readCache(NEWS_CACHE_KEY);
-  releaseNotes = readCache(RELEASES_CACHE_KEY);
+  newsPosts = readList(NEWS_CACHE_KEY);
+  releaseNotes = readList(RELEASES_CACHE_KEY);
   renderNewsGrid();
 }
 
-async function refreshNews() {
+let newsRequest = null;
+let lastNewsRefresh = 0;
+
+/** Одновременные запросы (таймер, возврат в окно, кнопка) сливаются в один. */
+function refreshNews() {
+  newsRequest ??= loadLatestNews().finally(() => {
+    newsRequest = null;
+    lastNewsRefresh = Date.now();
+  });
+  return newsRequest;
+}
+
+async function loadLatestNews() {
+  const previousIds = newsPosts.map((post) => post.id).join(',');
   const [news, releases] = await Promise.allSettled([
     invoke('get_vk_news'),
     // У GitHub строгий лимит запросов без авторизации, поэтому история обновляется редко.
@@ -181,52 +170,27 @@ async function refreshNews() {
   ]);
   if (news.status === 'fulfilled' && news.value?.success && news.value.posts?.length > 0) {
     const posts = news.value.posts;
-    freshPostIds = [...new Set([...freshPostIds, ...unseenPostIds(posts, readCache(NEWS_SEEN_KEY))])];
-    writeCache(NEWS_SEEN_KEY, posts.map((post) => post.id));
+    freshPostIds = [...new Set([...freshPostIds, ...unseenPostIds(posts, readList(NEWS_SEEN_KEY))])];
+    writeList(NEWS_SEEN_KEY, posts.map((post) => post.id));
     newsPosts = posts;
-    writeCache(NEWS_CACHE_KEY, newsPosts);
+    writeList(NEWS_CACHE_KEY, newsPosts);
   }
   if (releases.status === 'fulfilled' && releases.value?.length > 0) {
     releaseNotes = releases.value;
-    writeCache(RELEASES_CACHE_KEY, releaseNotes);
-    writeReleasesFetchedAt();
+    writeList(RELEASES_CACHE_KEY, releaseNotes);
+    writeNumber(RELEASES_FETCHED_KEY, Date.now());
   }
   renderNewsGrid();
+  // Открытое окно новостей получает новую запись сразу, прокрутка сохраняется.
+  if (openModalKind() === 'news' && newsPosts.map((post) => post.id).join(',') !== previousIds) {
+    replaceModalBody(newsArticlesHtml(newsPosts));
+  }
 }
 
 // --- Стеклянное окно ---
 
-let glassModalOpener = null;
-
-/** Пока открыто окно, основной интерфейс недоступен и для клавиатуры. */
-function setBackgroundInert(inert) {
-  document.querySelectorAll('body > header, #app-shell').forEach((element) => {
-    element.inert = inert;
-  });
-}
-
-function openGlassModal({ title, html, wide = false }) {
-  glassModalOpener = document.activeElement;
-  byId('glass-modal-title').textContent = title;
-  byId('glass-modal-body').innerHTML = html;
-  byId('glass-modal-body').scrollTop = 0;
-  byId('glass-modal-panel').classList.toggle('glass-panel-wide', wide);
-  byId('glass-modal').classList.remove('hidden');
-  setBackgroundInert(true);
-  byId('btn-glass-close').focus();
-}
-
-function closeGlassModal() {
-  if (byId('glass-modal').classList.contains('hidden')) return;
-  byId('glass-modal').classList.add('hidden');
-  setBackgroundInert(false);
-  // Удаление содержимого останавливает плеер и звук трансляции.
-  byId('glass-modal-body').innerHTML = '';
-  glassModalOpener?.focus?.();
-}
-
 function openNewsModal(index) {
-  openGlassModal({ title: 'Новости FenixCraft', html: newsArticlesHtml(newsPosts) });
+  openGlassModal({ title: 'Новости FenixCraft', html: newsArticlesHtml(newsPosts), kind: 'news' });
   byId(`news-post-${index}`)?.scrollIntoView({ block: 'start' });
   // Открытые новости больше не считаются новыми.
   if (freshPostIds.length > 0) {
@@ -256,8 +220,11 @@ function activeServers() {
   return Array.isArray(custom) && custom.length > 0 ? custom : SERVER_DEFAULTS;
 }
 
+let lastStatuses = null;
+
 function renderServers(statusById) {
   byId('servers-list').innerHTML = serversHtml(activeServers(), statusById, currentConfig.selectedServer);
+  renderAutoJoin();
 }
 
 async function refreshServers() {
@@ -267,7 +234,49 @@ async function refreshServers() {
   } catch {
     // Ошибка опроса выглядит как недоступные серверы.
   }
+  const previous = lastStatuses;
+  lastStatuses = statuses;
   renderServers(statuses);
+  // Датчик сервера, который включился или погас, посылает импульс по прожилкам.
+  if (!previous) return;
+  for (const server of activeServers()) {
+    if (Boolean(previous[server.id]?.online) !== Boolean(statuses[server.id]?.online)) {
+      pulseFrom(document.querySelector(`[data-server-id="${CSS.escape(server.id)}"]`), 0.7);
+    }
+  }
+}
+
+function selectedServerItem() {
+  return activeServers().find((server) => server.ip === currentConfig.selectedServer);
+}
+
+/** Подпись под «Играть»: на какой сервер игра зайдёт сама. */
+function renderAutoJoin() {
+  const server = selectedServerItem();
+  const state = autoJoinState({
+    server,
+    buildVersion: selectedBuild().version,
+    enabled: currentConfig.autoJoin !== false,
+    // До первого опроса статус неизвестен, поэтому сервер считается доступным.
+    online: !lastStatuses || !server || Boolean(lastStatuses[server.id]?.online),
+  });
+  const chip = byId('autojoin-chip');
+  chip.setAttribute('aria-pressed', String(state.enabled));
+  byId('autojoin-sensor').classList.toggle('is-online', state.enabled && !state.warning);
+  byId('autojoin-text').innerHTML = state.enabled
+    ? `Сразу на сервер <strong>${escapeHtml(state.serverName)}</strong>${state.warning ? ` <span class="autojoin-warning">· ${escapeHtml(state.warning)}</span>` : ''}`
+    : 'Автовход выключен: игра откроет главное меню';
+  byId('cfg-autojoin').checked = currentConfig.autoJoin !== false;
+}
+
+async function copyServerAddress(button) {
+  try {
+    await navigator.clipboard.writeText(button.dataset.copyIp);
+    button.textContent = 'Скопировано';
+  } catch {
+    button.textContent = 'Ошибка';
+  }
+  setTimeout(() => { button.textContent = 'IP'; }, 1500);
 }
 
 // --- Настройки ---
@@ -279,6 +288,7 @@ function bindSettings() {
   const fields = {
     ram: byId('cfg-ram'), width: byId('cfg-width'), height: byId('cfg-height'),
     java: byId('cfg-java'), args: byId('cfg-args'), console: byId('cfg-console'), debug: byId('cfg-debug'),
+    autoJoin: byId('cfg-autojoin'),
   };
   fields.ram.value = currentConfig.ram;
   byId('ram-label').textContent = `${currentConfig.ram} МБ`;
@@ -297,11 +307,13 @@ function bindSettings() {
     jvmArgs: fields.args.value.trim(),
     showConsole: fields.console.checked,
     debugMode: fields.debug.checked,
+    autoJoin: fields.autoJoin.checked,
   });
 
   const save = async () => {
     saveTimer = null;
     await persistConfig(collect());
+    renderAutoJoin();
   };
   flushSave = () => {
     if (saveTimer === null) return Promise.resolve();
@@ -458,47 +470,8 @@ function flashAuthMessage(text) {
   }, 3000);
 }
 
-function cropAvatar(image) {
-  const canvas = document.createElement('canvas');
-  canvas.width = AVATAR_SIZE;
-  canvas.height = AVATAR_SIZE;
-  const side = Math.min(image.width, image.height);
-  canvas.getContext('2d').drawImage(image, (image.width - side) / 2, (image.height - side) / 2, side, side, 0, 0, AVATAR_SIZE, AVATAR_SIZE);
-  return canvas.toDataURL('image/webp', 0.85);
-}
-
-function bindAvatar() {
-  const avatarImg = byId('sidebar-avatar-img');
-  const avatarInput = byId('avatar-file-input');
-  if (currentConfig.avatarData) avatarImg.src = currentConfig.avatarData;
-
-  byId('avatar-container').addEventListener('click', () => avatarInput.click());
-  avatarInput.addEventListener('change', (event) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    if (file.size > MAX_AVATAR_BYTES) {
-      flashAuthMessage('Файл больше 2 МБ');
-      return;
-    }
-    const reader = new FileReader();
-    reader.onerror = () => flashAuthMessage('Не удалось открыть картинку');
-    reader.onload = () => {
-      const image = new Image();
-      image.onerror = () => flashAuthMessage('Не удалось открыть картинку');
-      image.onload = async () => {
-        const avatarData = cropAvatar(image);
-        avatarImg.src = avatarData;
-        await persistConfig({ avatarData });
-        flashAuthMessage('Аватарка сохранена');
-      };
-      image.src = reader.result;
-    };
-    reader.readAsDataURL(file);
-  });
-}
-
 function bindProfile() {
-  bindAvatar();
+  bindAvatar({ current: currentConfig.avatarData, save: (avatarData) => persistConfig({ avatarData }), notify: flashAuthMessage });
   document.querySelectorAll('[data-account-tab]').forEach((tab) => {
     tab.addEventListener('click', () => selectAccountTab(tab.dataset.accountTab));
   });
@@ -604,6 +577,7 @@ function resetPlayState() {
 async function startGame() {
   await flushSave();
   await pendingSave;
+  pulseFrom(byId('btn-play'), 1.3);
   setPlayState('Подготовка…', true);
   byId('progress-status').textContent = 'Проверка файлов…';
   byId('progress-percent').textContent = '';
@@ -641,8 +615,8 @@ function bindGameEvents() {
 // --- Статус сети, Twitch и обновления ---
 
 const CONNECTIVITY_TONES = {
-  online: { dot: 'bg-emerald-400', text: 'text-emerald-400' },
-  degraded: { dot: 'bg-amber-400', text: 'text-amber-400' },
+  online: { dot: 'bg-[#18ff8c]', text: 'text-[#18ff8c]' },
+  degraded: { dot: 'bg-[#ffb02e]', text: 'text-[#ffb02e]' },
   offline: { dot: 'bg-slate-500', text: 'text-slate-400' },
 };
 
@@ -706,9 +680,18 @@ function activateElement(target) {
     selectBuild(build.dataset.build);
     return;
   }
+  const copyIp = target.closest('[data-copy-ip]');
+  if (copyIp) {
+    copyServerAddress(copyIp);
+    return;
+  }
   const server = target.closest('[data-server-ip]');
   if (server) {
-    persistConfig({ selectedServer: server.dataset.serverIp }).then(refreshServers);
+    persistConfig({ selectedServer: server.dataset.serverIp }).then(() => renderServers(lastStatuses ?? {}));
+    return;
+  }
+  if (target.closest('#autojoin-chip')) {
+    persistConfig({ autoJoin: currentConfig.autoJoin === false }).then(renderAutoJoin);
     return;
   }
   const newsCard = target.closest('[data-open-news]');
@@ -775,7 +758,7 @@ async function showLauncherVersion() {
 }
 
 async function start() {
-  startEmbers(byId('bg-embers'));
+  startSculk(byId('bg-sculk'));
   bindWindowControls();
   bindDelegatedActions();
   bindConsole();
@@ -806,6 +789,10 @@ async function start() {
   setInterval(updateTwitchStatus, REFRESH_INTERVAL_MS);
   setInterval(refreshConnectivity, CONNECTIVITY_INTERVAL_MS);
   setInterval(refreshNews, NEWS_REFRESH_MS);
+  // Вернувшись в лаунчер, игрок сразу видит свежие записи.
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && Date.now() - lastNewsRefresh > NEWS_FOCUS_REFRESH_MS) refreshNews();
+  });
 }
 
 start().catch((error) => showError({ title: 'Лаунчер запустился с ошибкой', message: String(error), hint: 'Перезапустите лаунчер.' }));
