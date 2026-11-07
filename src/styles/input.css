@@ -1279,7 +1279,22 @@ aside.glass-rail { border-color: rgba(255, 255, 255, 0.14) !important; }
 
 .btn-skin-pick:hover { background: var(--accent-soft); }
 
-.skin-catalog { display: flex; flex-direction: column; gap: 1rem; }
+.skin-catalog { display: flex; flex-direction: column; gap: 1rem; flex: 1; min-height: 0; }
+
+/* Вкладки и кнопка «Надеть» всегда на виду, прокручивается только список. */
+.glass-panel-body:has(> .skin-catalog) {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.skin-catalog-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin-right: -0.5rem;
+  padding-right: 0.5rem;
+}
 
 .skin-tabs {
   display: inline-grid;
