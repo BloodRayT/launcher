@@ -2,7 +2,7 @@
 import { byId } from './core.js';
 import { closeGlassModal, openGlassModal, openModalKind } from './modal.js';
 import { escapeHtml } from './utils.js';
-import { catalogHtml, frontParts } from './skin-catalog-view.js';
+import { catalogHtml, choiceToApply, frontParts } from './skin-catalog-view.js';
 
 const MODAL_KIND = 'skins';
 let openings = 0;
@@ -93,7 +93,7 @@ export async function openSkinCatalog({ load, apply, current, ely }) {
     button.disabled = true;
     status('Сохраняем выбор на сервере…');
     try {
-      await apply(choice);
+      await apply(choiceToApply(tab, choice, elyState));
       closeGlassModal();
     } catch (error) {
       status(String(error), true);
