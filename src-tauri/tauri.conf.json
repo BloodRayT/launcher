@@ -36,6 +36,18 @@
       "icons/128x128.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "windows": {
+      "nsis": {
+        "template": "installer/installer.nsi",
+        "installerIcon": "icons/icon.ico",
+        "sidebarImage": "icons/installer/sidebar.bmp",
+        "headerImage": "icons/installer/header.bmp",
+        "languages": [
+          "Russian"
+        ],
+        "displayLanguageSelector": false
+      }
+    }
   }
 }
