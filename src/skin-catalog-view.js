@@ -45,6 +45,16 @@ export function isElyChoice(choice, ely) {
   return Boolean(ely?.signedIn) && !choice.skin && !choice.cape;
 }
 
+/**
+ * Что сохранит кнопка «Надеть». На вкладке Ely.by она всегда надевает скин с сайта,
+ * даже если игрок не щёлкнул по карточке: иначе снова сохранялся бы прежний скин сервера.
+ * @param {string} tab @param {{ skin: string, cape: string }} choice @param {{ signedIn?: boolean }} ely
+ * @returns {{ skin: string, cape: string }}
+ */
+export function choiceToApply(tab, choice, ely) {
+  return tab === 'ely' && ely?.signedIn ? { skin: '', cape: '' } : { ...choice };
+}
+
 function elyPreview(kind, url) {
   const size = kind === 'skins' ? 'width="16" height="32"' : 'width="10" height="16"';
   return url

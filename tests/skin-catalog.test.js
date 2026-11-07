@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { catalogHtml, frontParts, isElyChoice } from '../src/skin-catalog-view.js';
+import { catalogHtml, choiceToApply, frontParts, isElyChoice } from '../src/skin-catalog-view.js';
 import { elyErrorText, isElySignedIn } from '../src/ely-account.js';
 
 const CATALOG = {
@@ -50,6 +50,14 @@ test('Ely.by skin is chosen when no server skin or cape is worn', () => {
   assert.ok(html.includes('data-pick-kind="ely" data-pick-id="ely" aria-pressed="true"'));
   assert.ok(html.includes('https://ely.by/skins'));
   assert.ok(html.includes('Мой скин · Fenix'));
+});
+
+test('"Надеть" on the Ely.by tab wears the Ely.by skin even without clicking its card', () => {
+  const serverChoice = { skin: '9bee0322cbcd9cb8', cape: 'ayunull' };
+
+  assert.deepEqual(choiceToApply('ely', serverChoice, { signedIn: true }), { skin: '', cape: '' });
+  assert.deepEqual(choiceToApply('skins', serverChoice, { signedIn: true }), serverChoice);
+  assert.deepEqual(choiceToApply('ely', serverChoice, { signedIn: false }), serverChoice);
 });
 
 test('Ely.by login errors read like hints under the form', () => {
