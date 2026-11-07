@@ -121,7 +121,7 @@ export function catalogHtml(catalog, choice, tab, ely = { signedIn: false }) {
         <button type="button" role="tab" data-skin-tab="capes" aria-selected="${tab === 'capes'}">Плащи · ${catalog.capes.length}</button>
         <button type="button" role="tab" data-skin-tab="ely" aria-selected="${tab === 'ely'}">Ely.by</button>
       </div>
-      ${content}
+      <div class="skin-catalog-scroll">${content}</div>
       <footer class="skin-catalog-footer">
         <p id="skin-catalog-status" class="skin-catalog-status" aria-live="polite">${note}</p>
         <button type="button" id="btn-skin-apply" class="btn-primary text-sm px-6 py-2.5">Надеть</button>
