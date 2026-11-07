@@ -9,6 +9,7 @@ from urllib.parse import quote
 
 import feeds
 import skins
+import updates
 
 app = FastAPI(title="FenixCraft Launcher Backend v1.0")
 
@@ -31,6 +32,9 @@ os.makedirs(STORAGE_DIR, exist_ok=True)
 app.mount("/api/launcher/files", StaticFiles(directory=STORAGE_DIR), name="launcher-files")
 app.mount("/files", StaticFiles(directory=STORAGE_DIR), name="files")
 app.include_router(skins.router)
+app.include_router(updates.router)
+# Сервер сам держит копию установщика последнего релиза для игроков, у которых не открывается GitHub.
+app.add_event_handler("startup", updates.start_sync)
 
 def sha256_of_file(filepath: str) -> str:
     h = hashlib.sha256()
