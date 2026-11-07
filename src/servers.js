@@ -3,7 +3,7 @@ import { escapeHtml, serverStatusLabel } from './utils.js';
 const DEFAULT_PORT = 25565;
 
 export const SERVER_DEFAULTS = Object.freeze([
-  { id: 'fenix-main', name: 'FenixCraft', desc: 'Vanilla • 26.3', ip: 'play.fenixcraft.ru', port: DEFAULT_PORT, icon: '🦅', maxDefault: 1000 },
+  { id: 'fenix-main', name: 'FenixCraft', desc: 'NeoForge • 26.2', ip: 'play.fenixcraft.ru', port: DEFAULT_PORT, icon: '🦅', maxDefault: 1000 },
   { id: 'fenix-mods', name: 'FenixTech', desc: 'NeoForge • 1.21.1', ip: 'tech.fenixcraft.ru', port: DEFAULT_PORT, icon: '⚙️', maxDefault: 500 },
 ]);
 
@@ -34,14 +34,16 @@ export function serversHtml(servers, statusById, selectedIp) {
     return `
       <div data-server-id="${escapeHtml(server.id)}" class="glass-card server-card${selected ? ' is-selected' : ''}">
         <button type="button" data-server-ip="${escapeHtml(server.ip)}" aria-pressed="${selected}" class="server-select">
-          <span class="sensor${online ? ' is-online' : ''}" aria-hidden="true"></span>
+          <span class="server-icon" aria-hidden="true">${escapeHtml(server.icon)}</span>
           <span class="min-w-0 block">
             <span class="server-name block truncate">${escapeHtml(server.name)}</span>
-            <span class="text-[11px] text-slate-400 block truncate">${escapeHtml(server.desc)}</span>
+            <span class="text-[10px] text-slate-400 block truncate">${escapeHtml(server.desc)}</span>
           </span>
         </button>
         <div class="flex flex-col items-end gap-1 shrink-0">
-          <span class="server-status tabular-nums${online ? ' is-online' : ''}">${escapeHtml(serverStatusLabel(status))}</span>
+          <span class="server-status tabular-nums${online ? ' is-online' : ''}" title="${online ? 'Игроков онлайн сейчас' : 'Сервер не ответил'}">
+            <span class="server-dot" aria-hidden="true"></span>${escapeHtml(serverStatusLabel(status))}
+          </span>
           <button type="button" class="copy-ip" data-copy-ip="${escapeHtml(serverAddress(server))}" title="Скопировать адрес сервера">IP</button>
         </div>
       </div>`;

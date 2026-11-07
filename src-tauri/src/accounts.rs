@@ -1,8 +1,9 @@
-//! Аккаунты: Microsoft-вход и выбор личности игрока перед запуском.
+//! Аккаунты: вход через Ely.by и Microsoft и выбор личности игрока перед запуском.
 //! Refresh-токен лежит только в системном хранилище, токен Minecraft живёт только в памяти.
 
 use fenix_core::config::{config_path, game_dir, load_config, save_config, LauncherConfig};
 use fenix_core::download::probe_client;
+use fenix_core::ely::{self, ElySession};
 use fenix_core::errors::{LauncherError, UserError};
 use fenix_core::launch::PlayerIdentity;
 use fenix_core::microsoft::{
@@ -10,12 +11,15 @@ use fenix_core::microsoft::{
     sign_in_to_minecraft, MinecraftAccount, MsEndpoints,
 };
 use fenix_core::reporter::Reporter;
+use fenix_core::skin_loader::new_token;
+use fenix_core::Endpoints;
 use serde::Serialize;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::{AppHandle, Emitter};
 
 const KEYRING_SERVICE: &str = "ru.fenixcraft.launcher";
 const KEYRING_USER: &str = "microsoft-refresh-token";
+const ELY_KEYRING_USER: &str = "ely-session";
 
 /// Новый вход или отмена делают ожидание предыдущего входа неактуальным.
 static LOGIN_GENERATION: AtomicU64 = AtomicU64::new(0);
@@ -143,12 +147,110 @@ pub fn ms_logout() -> Result<LauncherConfig, UserError> {
     .map_err(|error| error.payload())
 }
 
+// --- Ely.by ---
+
+fn ely_entry() -> Result<keyring::Entry, LauncherError> {
+    keyring::Entry::new(KEYRING_SERVICE, ELY_KEYRING_USER).map_err(storage_error)
+}
+
+fn store_ely_session(session: &ElySession) -> Result<(), LauncherError> {
+    let json = serde_json::to_vec(session).map_err(|error| LauncherError::Io(error.to_string()))?;
+    ely_entry()?.set_secret(&json).map_err(storage_error)
+}
+
+fn load_ely_session() -> Result<ElySession, LauncherError> {
+    let secret = ely_entry()?.get_secret().map_err(|error| match error {
+        keyring::Error::NoEntry => LauncherError::ElySessionExpired,
+        other => storage_error(other),
+    })?;
+    serde_json::from_slice(&secret).map_err(|_| LauncherError::ElySessionExpired)
+}
+
+fn delete_ely_session() -> Result<(), LauncherError> {
+    match ely_entry()?.delete_credential() {
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(error) => Err(storage_error(error)),
+    }
+}
+
+/// Вход через Ely.by. Пароль уходит только на authserver.ely.by и не сохраняется.
+/// Если аккаунт защищён двухфакторной аутентификацией, ответ просит код, и вход повторяется с ним.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn ely_login(
+    login: String,
+    password: String,
+    totp: Option<String>,
+) -> Result<LauncherConfig, UserError> {
+    let client = probe_client().map_err(|error| error.payload())?;
+    let session = ely::authenticate(
+        &client,
+        &Endpoints::default().ely_authserver,
+        &login,
+        &password,
+        totp.as_deref(),
+        &new_token(),
+    )
+    .await
+    .map_err(|error| error.payload())?;
+    store_ely_session(&session).map_err(|error| error.payload())?;
+    update_config(|config| {
+        config.account_type = "ely".to_string();
+        config.ely_username = session.username;
+        config.ely_uuid = session.uuid;
+    })
+    .map_err(|error| error.payload())
+}
+
+#[tauri::command]
+pub async fn ely_logout() -> Result<LauncherConfig, UserError> {
+    if let (Ok(session), Ok(client)) = (load_ely_session(), probe_client()) {
+        ely::invalidate(&client, &Endpoints::default().ely_authserver, &session).await;
+    }
+    delete_ely_session().map_err(|error| error.payload())?;
+    update_config(|config| {
+        config.account_type = "offline".to_string();
+        config.ely_username.clear();
+        config.ely_uuid.clear();
+    })
+    .map_err(|error| error.payload())
+}
+
+/// Свежая сессия Ely.by. Без сети игра запускается под тем же ником, а сервер Ely.by её не подтвердит.
+async fn resolve_ely(
+    config: &LauncherConfig,
+    reporter: &Reporter,
+) -> Result<PlayerIdentity, LauncherError> {
+    let session = load_ely_session()?;
+    let client = probe_client()?;
+    match ely::refresh(&client, &Endpoints::default().ely_authserver, &session).await {
+        Ok(fresh) => {
+            store_ely_session(&fresh)?;
+            Ok(PlayerIdentity::ely(
+                &fresh.username,
+                &fresh.uuid,
+                &fresh.access_token,
+            ))
+        }
+        Err(LauncherError::NeedsInternet { .. }) => {
+            reporter.log("[Аккаунт] Нет связи с Ely.by: игра запустится без проверки аккаунта.");
+            Ok(PlayerIdentity::unverified(
+                &config.ely_username,
+                &config.ely_uuid,
+            ))
+        }
+        Err(error) => Err(error),
+    }
+}
+
 /// Для лицензии получает свежую сессию. Без сети игра запускается под тем же именем,
 /// но серверы с проверкой лицензии такого игрока не пустят.
 pub async fn resolve_identity(
     config: &LauncherConfig,
     reporter: &Reporter,
 ) -> Result<PlayerIdentity, LauncherError> {
+    if config.account_type == "ely" {
+        return resolve_ely(config, reporter).await;
+    }
     if config.account_type != "microsoft" {
         return Ok(PlayerIdentity::offline(&config.username));
     }

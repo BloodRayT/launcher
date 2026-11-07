@@ -2,11 +2,12 @@ use fenix_core::config::{config_path, game_dir, load_config};
 use fenix_core::download::{probe_client, read_limited};
 use fenix_core::network::{is_twitch_live, twitch_preview_url};
 use fenix_core::news::{fetch_community_news, COMMUNITY_WIDGET_URL};
+use fenix_core::ping::query_players;
 use fenix_core::updater::{fetch_release_notes, ReleaseNote};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::{Read, Write};
-use std::net::{TcpStream, ToSocketAddrs};
+use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::time::Duration;
 
 const PING_TIMEOUT: Duration = Duration::from_millis(2000);
@@ -34,6 +35,14 @@ pub struct ServerStatus {
     max_players: u32,
 }
 
+fn connect(address: &SocketAddr) -> Option<TcpStream> {
+    let stream = TcpStream::connect_timeout(address, PING_TIMEOUT).ok()?;
+    let _ = stream.set_read_timeout(Some(PING_TIMEOUT));
+    let _ = stream.set_write_timeout(Some(PING_TIMEOUT));
+    Some(stream)
+}
+
+/// Сначала современный статус-запрос с точным онлайном, затем старый запрос для давних серверов.
 fn ping_minecraft_server(ip: &str, port: u16, fallback_max: u32) -> ServerStatus {
     let offline = ServerStatus {
         online: false,
@@ -47,12 +56,23 @@ fn ping_minecraft_server(ip: &str, port: u16, fallback_max: u32) -> ServerStatus
     else {
         return offline;
     };
-    let Ok(mut stream) = TcpStream::connect_timeout(&address, PING_TIMEOUT) else {
+    let Some(mut stream) = connect(&address) else {
         return offline;
     };
-    let _ = stream.set_read_timeout(Some(PING_TIMEOUT));
-    let _ = stream.set_write_timeout(Some(PING_TIMEOUT));
+    if let Some(count) = query_players(&mut stream, ip, port) {
+        return ServerStatus {
+            online: true,
+            players: count.online,
+            max_players: count.max,
+        };
+    }
+    match connect(&address) {
+        Some(stream) => legacy_ping(stream, fallback_max),
+        None => offline,
+    }
+}
 
+fn legacy_ping(mut stream: TcpStream, fallback_max: u32) -> ServerStatus {
     let mut buffer = [0u8; 512];
     if stream.write_all(&[0xFE, 0x01]).is_ok() {
         if let Ok(read) = stream.read(&mut buffer) {

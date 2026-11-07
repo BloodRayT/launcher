@@ -71,6 +71,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         modrinth: format!("{DEAD_URL}/modrinth"),
         adoptium: format!("{DEAD_URL}/adoptium"),
         neoforge_mavens: vec![format!("{DEAD_URL}/neoforge")],
+        forge_mavens: vec![format!("{DEAD_URL}/forge")],
+        ely_authserver: format!("{DEAD_URL}/ely"),
+        authlib_injector_release: format!("{DEAD_URL}/injector"),
     };
     let offline_config = LauncherConfig {
         backend_url: if loader_of(&config.selected_version) == Loader::Vanilla {

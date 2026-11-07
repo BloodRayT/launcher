@@ -52,6 +52,7 @@ export function createSkinStage({ canvas, fallback }) {
   viewer.controls.enableZoom = false;
   viewer.controls.enablePan = false;
   viewer.animation = POSES.idle(lib);
+  let motion = true;
 
   new ResizeObserver(() => viewer.setSize(stage.clientWidth, stage.clientHeight)).observe(stage);
   // Свёрнутое окно не должно тратить видеокарту на анимацию.
@@ -63,12 +64,23 @@ export function createSkinStage({ canvas, fallback }) {
     async setSkin(src) {
       await viewer.loadSkin(src, { model: 'auto-detect' });
     },
+    /** @param {string | null} src плащ 64×32 или null, чтобы снять */
+    async setCape(src) {
+      if (src) await viewer.loadCape(src);
+      else viewer.loadCape(null);
+    },
+    /** Без анимаций персонаж стоит на месте, но его по-прежнему можно вращать мышью. */
+    setMotion(on) {
+      motion = on;
+      viewer.autoRotate = on;
+      if (viewer.animation) viewer.animation.paused = !on;
+    },
     setPose(name) {
       viewer.animation = (POSES[name] ?? POSES.idle)(lib);
+      viewer.animation.paused = !motion;
     },
     setName(name) {
-      // Ник над головой пиксельным шрифтом лаунчера; библиотека перерисует его, когда шрифт загрузится.
-      viewer.nameTag = name ? new lib.NameTagObject(name, { font: '48px "Pixelify Sans"', textStyle: '#e8fff2' }) : null;
+      viewer.nameTag = name || null;
     },
   };
 }

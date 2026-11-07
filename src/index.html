@@ -5,7 +5,7 @@
   <title>FenixCraft Launcher</title>
   <link rel="stylesheet" href="styles/tailwind.css" />
 </head>
-<body class="h-screen w-screen flex flex-col">
+<body class="app-window flex flex-col">
 
   <!-- Иконки: один набор, одна толщина линии -->
   <svg xmlns="http://www.w3.org/2000/svg" class="hidden" aria-hidden="true">
@@ -25,16 +25,19 @@
     <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
     <symbol id="i-square" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="1.5"/></symbol>
     <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+    <symbol id="i-layers" viewBox="0 0 24 24"><path d="M12 3 3 7.5l9 4.5 9-4.5z"/><path d="m3 12 9 4.5 9-4.5M3 16.5 12 21l9-4.5"/></symbol>
+    <symbol id="i-caret" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
   </svg>
 
-  <!-- Живой фон: глубинный сланец и прожилки скалка -->
+  <!-- Живой фон: медленный дрейф картинки и искры феникса -->
   <div class="app-backdrop" aria-hidden="true"></div>
-  <canvas id="bg-sculk" class="app-sculk" aria-hidden="true"></canvas>
+  <video id="bg-wallpaper" class="app-wallpaper" aria-hidden="true" muted loop playsinline preload="auto" disablepictureinpicture></video>
+  <canvas id="bg-embers" class="app-embers" aria-hidden="true"></canvas>
 
   <header data-tauri-drag-region class="app-header glass-rail">
     <div class="flex items-center gap-3 pointer-events-none">
       <img src="logo.webp" alt="FenixCraft" class="w-7 h-7 rounded-full object-cover ring-1 ring-emerald-400/40" />
-      <span class="brand-name">FenixCraft</span>
+      <span class="font-extrabold tracking-tight text-[17px]"><span class="mc-yellow">Fenix</span><span class="mc-aqua">Craft</span></span>
       <span id="app-version-badge" class="version-badge"></span>
       <button id="btn-update-launcher" class="hidden pointer-events-auto update-chip">Обновить лаунчер</button>
       <span class="text-xs text-slate-500 pl-3">Больше, чем просто игра</span>
@@ -49,13 +52,12 @@
       <button id="btn-top-settings" data-open-tab="settings" title="Настройки" aria-label="Настройки" class="header-icon"><svg class="icon"><use href="#i-settings"/></svg></button>
       <div class="h-4 w-px bg-white/10 mx-1.5"></div>
       <button id="btn-win-min" aria-label="Свернуть" class="header-icon"><svg class="icon"><use href="#i-minus"/></svg></button>
-      <button id="btn-win-max" aria-label="Развернуть" class="header-icon"><svg class="icon icon-sm"><use href="#i-square"/></svg></button>
       <button id="btn-win-close" aria-label="Закрыть" class="header-icon header-icon-close"><svg class="icon"><use href="#i-close"/></svg></button>
     </div>
   </header>
 
   <div id="app-shell" class="flex flex-1 overflow-hidden relative z-10">
-    <aside class="w-56 glass-rail border-r flex flex-col justify-between p-3 shrink-0">
+    <aside class="w-56 glass-rail border-r border-white/10 flex flex-col justify-between p-3 shrink-0">
       <nav class="space-y-1 mt-2" aria-label="Разделы">
         <button data-tab="home" class="nav-btn active-nav">
           <svg class="icon"><use href="#i-home"/></svg><span>Главная</span>
@@ -80,7 +82,7 @@
       </nav>
 
       <!-- Профиль игрока -->
-      <div class="p-3 glass-card space-y-2.5 w-full overflow-hidden shrink-0">
+      <div class="p-3 rounded-xl glass-card space-y-2.5 w-full overflow-hidden shrink-0">
         <div class="flex items-center gap-3">
           <div class="relative group cursor-pointer shrink-0" id="avatar-container" title="Сменить аватарку" role="button" tabindex="0" aria-label="Сменить аватарку">
             <img id="sidebar-avatar-img" src="logo.webp" alt="" class="w-11 h-11 rounded-full object-cover ring-2 ring-emerald-500/70 group-hover:brightness-75 transition" />
@@ -95,18 +97,30 @@
           </div>
         </div>
 
-        <div class="account-switch" role="group" aria-label="Тип входа">
-          <button data-account-tab="offline" class="account-tab">Пиратка</button>
-          <button data-account-tab="microsoft" class="account-tab">Лицензия</button>
+        <div class="grid grid-cols-2 gap-1 p-1 rounded-lg bg-[#080d11] border border-white/10" role="group" aria-label="Тип входа">
+          <button data-account-tab="offline" class="account-tab py-1 rounded-md text-xs font-semibold transition">Пиратка</button>
+          <button data-account-tab="ely" class="account-tab py-1 rounded-md text-xs font-semibold transition">Ely.by</button>
         </div>
 
         <div id="sidebar-offline-box" class="space-y-1.5 w-full">
           <input id="sidebar-nick-input" type="text" maxlength="16" placeholder="Ваш никнейм" aria-label="Никнейм" class="field text-xs py-1.5" />
         </div>
 
-        <div id="sidebar-license-box" class="space-y-1.5 w-full hidden">
-          <button id="btn-ms-login" class="btn-primary w-full text-xs py-1.5">Войти через Microsoft</button>
-          <button id="btn-ms-logout" class="hidden btn-ghost w-full text-xs py-1.5">Выйти из аккаунта</button>
+        <!-- Вход через Ely.by: пароль отправляется только на сервер Ely.by и не сохраняется -->
+        <div id="sidebar-ely-box" class="w-full hidden">
+          <form id="ely-form" class="space-y-1.5" autocomplete="on">
+            <input id="ely-login" type="text" autocomplete="username" placeholder="Ник или почта Ely.by" aria-label="Ник или почта Ely.by" class="field text-xs py-1.5" />
+            <input id="ely-password" type="password" autocomplete="current-password" placeholder="Пароль" aria-label="Пароль Ely.by" class="field text-xs py-1.5" />
+            <div id="ely-totp-row" class="hidden">
+              <input id="ely-totp" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="Код из приложения" aria-label="Код подтверждения" class="field text-xs py-1.5 tracking-widest" />
+            </div>
+            <button id="btn-ely-login" type="submit" class="btn-primary w-full text-xs py-1.5">Войти через Ely.by</button>
+            <button type="button" data-external="https://account.ely.by/register" class="text-link text-[10px] w-full text-center">Нет аккаунта? Регистрация</button>
+          </form>
+          <div id="ely-signed" class="hidden space-y-1.5">
+            <p class="text-[11px] text-slate-400 text-center truncate">Аккаунт <strong id="ely-signed-name" class="text-white"></strong></p>
+            <button id="btn-ely-logout" type="button" class="btn-ghost w-full text-xs py-1.5">Выйти из Ely.by</button>
+          </div>
         </div>
 
         <div id="sidebar-auth-msg" class="text-[10px] text-center text-slate-400 truncate min-h-[14px]" aria-live="polite"></div>
@@ -118,6 +132,8 @@
       <!-- ГЛАВНАЯ -->
       <div id="tab-home" class="home-layout">
         <section class="hero" aria-labelledby="hero-title">
+          <!-- Живой баннер: ролик под затемнением, включается переключателем «Анимация» -->
+          <video id="hero-video" class="hero-video" aria-hidden="true" muted loop playsinline preload="none" disablepictureinpicture></video>
           <div class="hero-art" aria-hidden="true"></div>
           <div class="hero-body">
             <h1 id="hero-title" class="hero-title">Vanilla</h1>
@@ -125,19 +141,42 @@
             <p id="hero-desc" class="hero-desc">Исследуй. Строй. Выживай.</p>
 
             <div class="flex items-center gap-2.5 pt-4">
-              <span class="play-glow">
-                <button id="btn-play" class="play-button">
-                  <svg class="icon"><use href="#i-play"/></svg><span id="btn-play-text">Играть</span>
-                </button>
-              </span>
+              <button id="btn-play" class="play-button">
+                <svg class="icon"><use href="#i-play"/></svg><span id="btn-play-text">Играть</span>
+              </button>
               <button data-open-tab="settings" aria-label="Настройки игры" title="Настройки игры" class="hero-icon-btn"><svg class="icon"><use href="#i-sliders"/></svg></button>
               <button id="btn-hero-folder" aria-label="Открыть папку игры" title="Открыть папку игры" class="hero-icon-btn"><svg class="icon"><use href="#i-folder"/></svg></button>
+
+              <!-- Любая версия Minecraft: список релизов Mojang, с модифицированными по настройке -->
+              <div class="version-picker">
+                <button id="btn-version-picker" class="version-picker-button" aria-haspopup="listbox" aria-expanded="false" aria-controls="version-menu">
+                  <span class="version-picker-icon" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-layers"/></svg></span>
+                  <span class="min-w-0 text-left">
+                    <span class="version-picker-label">Любая версия</span>
+                    <span id="version-picker-value" class="version-picker-value">Выбрать из списка</span>
+                  </span>
+                  <svg class="icon icon-sm version-picker-caret" aria-hidden="true"><use href="#i-caret"/></svg>
+                </button>
+                <div id="version-menu" class="version-menu hidden">
+                  <div class="version-menu-head">
+                    <input id="version-search" type="search" class="field text-xs py-1.5" placeholder="Поиск версии, например 1.20.1" aria-label="Поиск версии" />
+                  </div>
+                  <ul id="version-list" class="version-list" role="listbox" aria-label="Версии Minecraft"></ul>
+                  <p id="version-menu-note" class="version-menu-note"></p>
+                </div>
+              </div>
             </div>
 
-            <button id="autojoin-chip" class="autojoin" aria-pressed="true" title="Нажмите, чтобы включить или выключить автовход">
-              <span id="autojoin-sensor" class="sensor is-online" aria-hidden="true"></span>
-              <span id="autojoin-text">Сразу на сервер</span>
-            </button>
+            <div class="hero-toggles">
+              <button id="autojoin-chip" class="autojoin" aria-pressed="true" title="Нажмите, чтобы включить или выключить автовход">
+                <span id="autojoin-dot" class="autojoin-dot is-on" aria-hidden="true"></span>
+                <span id="autojoin-text">Сразу на сервер</span>
+              </button>
+              <button id="hero-anim-chip" class="autojoin hidden" aria-pressed="false" title="Оживить баннер сервера роликом">
+                <span id="hero-anim-dot" class="autojoin-dot" aria-hidden="true"></span>
+                <span>Анимация</span>
+              </button>
+            </div>
 
             <div id="progress-container" class="hidden progress-panel" role="status" aria-live="polite">
               <div class="flex justify-between text-xs text-slate-200 mb-1.5">
@@ -193,7 +232,7 @@
                 <label for="cfg-ram" class="text-slate-400">Выделенная память</label>
                 <span id="ram-label" class="text-emerald-400 font-bold tabular-nums">6144 МБ</span>
               </div>
-              <input id="cfg-ram" type="range" min="2048" max="16384" step="512" class="w-full mt-3" />
+              <input id="cfg-ram" type="range" min="2048" max="16384" step="512" class="w-full mt-3 accent-emerald-500" />
             </div>
             <div>
               <label for="cfg-width" class="text-xs text-slate-400">Ширина окна</label>
@@ -204,10 +243,24 @@
               <input id="cfg-height" type="number" class="field mt-1 tabular-nums" />
             </div>
           </div>
+          <div class="grid grid-cols-3 gap-x-5 gap-y-3">
+            <label class="flex items-start gap-2 text-sm cursor-pointer">
+              <input id="cfg-live-bg" type="checkbox" class="accent-emerald-500 w-4 h-4 mt-0.5 shrink-0" />
+              <span>Живой фон<span class="block text-xs text-slate-400">На фоне крутится анимированный ролик. Выключите — останется картинка.</span></span>
+            </label>
+            <label class="flex items-start gap-2 text-sm cursor-pointer">
+              <input id="cfg-no-motion" type="checkbox" class="accent-emerald-500 w-4 h-4 mt-0.5 shrink-0" />
+              <span>Выключить все анимации<span class="block text-xs text-slate-400">Фон, ролик баннера, искры и вращение персонажа замрут. Помогает слабым компьютерам.</span></span>
+            </label>
+            <label class="flex items-start gap-2 text-sm cursor-pointer">
+              <input id="cfg-close-after-launch" type="checkbox" class="accent-emerald-500 w-4 h-4 mt-0.5 shrink-0" />
+              <span>Закрыть лаунчер после запуска игры<span class="block text-xs text-slate-400">Через 5 секунд после старта игры лаунчер закроется и освободит память. Игра продолжит работать.</span></span>
+            </label>
+          </div>
         </section>
 
         <section class="glass-card settings-card" aria-labelledby="set-java">
-          <h3 id="set-java" class="settings-title">Java и аргументы JVM</h3>
+          <h3 id="set-java" class="settings-title">Java и аргументы запуска</h3>
           <div>
             <label for="cfg-java" class="text-xs text-slate-400">Путь к Java 21 или выше</label>
             <div class="flex gap-2 mt-1">
@@ -215,22 +268,50 @@
               <button id="btn-browse-java" class="btn-ghost text-xs px-4">Обзор…</button>
             </div>
           </div>
-          <div>
-            <label for="cfg-args" class="text-xs text-slate-400">Пользовательские аргументы JVM</label>
-            <input id="cfg-args" type="text" class="field mt-1 font-mono" />
+
+          <label class="flex items-center gap-2 text-sm cursor-pointer">
+            <input id="cfg-custom-args" type="checkbox" class="accent-emerald-500 w-4 h-4" aria-controls="custom-args" />
+            <span>Пользовательские аргументы</span>
+            <span id="custom-args-state" class="args-state">включены</span>
+          </label>
+          <!-- Выключенные аргументы сохраняются, но не передаются игре: блок сворачивается, как закомментированный код -->
+          <div id="custom-args" class="custom-args">
+            <div>
+              <div class="flex items-center justify-between">
+                <label for="cfg-args" class="text-xs text-slate-400">Аргументы JVM</label>
+                <button id="btn-reset-args" type="button" class="text-link text-[11px]">Вернуть стандартные</button>
+              </div>
+              <input id="cfg-args" type="text" class="field mt-1 font-mono" placeholder="-XX:+UnlockExperimentalVMOptions -XX:+UseG1GC …" />
+            </div>
+            <div>
+              <label for="cfg-game-args" class="text-xs text-slate-400">Аргументы Minecraft</label>
+              <input id="cfg-game-args" type="text" class="field mt-1 font-mono" placeholder="Например --fullscreen" />
+            </div>
+            <p id="custom-args-preview" class="custom-args-preview font-mono" aria-hidden="true"></p>
           </div>
+
           <div class="flex items-center gap-6 pt-1">
             <label class="flex items-center gap-2 text-sm cursor-pointer">
               <input id="cfg-console" type="checkbox" class="accent-emerald-500 w-4 h-4" />
               <span>Открывать консоль при запуске</span>
             </label>
             <label class="flex items-center gap-2 text-sm cursor-pointer">
-              <input id="cfg-autojoin" type="checkbox" class="w-4 h-4" />
-              <span>Сразу заходить на выбранный сервер</span>
-            </label>
-            <label class="flex items-center gap-2 text-sm cursor-pointer">
               <input id="cfg-debug" type="checkbox" class="accent-emerald-500 w-4 h-4" />
               <span>Подробный журнал (Debug)</span>
+            </label>
+          </div>
+        </section>
+
+        <section class="glass-card settings-card" aria-labelledby="set-versions">
+          <h3 id="set-versions" class="settings-title">Версии и вход на сервер</h3>
+          <div class="grid grid-cols-2 gap-x-6 gap-y-3">
+            <label class="flex items-start gap-2 text-sm cursor-pointer">
+              <input id="cfg-show-modified" type="checkbox" class="accent-emerald-500 w-4 h-4 mt-0.5" />
+              <span>Отображать модифицированные<span class="block text-xs text-slate-400">В списке «Любая версия» появятся Fabric, Forge и NeoForge. Fabric и NeoForge ставятся вместе с Iris и Sodium.</span></span>
+            </label>
+            <label class="flex items-start gap-2 text-sm cursor-pointer">
+              <input id="cfg-autojoin" type="checkbox" class="accent-emerald-500 w-4 h-4 mt-0.5" />
+              <span>Сразу заходить на выбранный сервер<span class="block text-xs text-slate-400">После запуска игра сама подключится к серверу из правой панели.</span></span>
             </label>
           </div>
         </section>
@@ -251,7 +332,7 @@
       <div id="tab-faq" class="hidden space-y-5 pb-4">
         <h2 class="text-xl font-bold text-white">Правила и частые вопросы</h2>
 
-        <section class="glass-card rule-highlight p-5 space-y-3" aria-labelledby="rules-main">
+        <section class="glass-card rule-highlight rounded-xl p-5 space-y-3" aria-labelledby="rules-main">
           <h3 id="rules-main" class="text-base font-bold text-emerald-300">Главное</h3>
           <ol class="rule-list">
             <li><strong>Уважайте друг друга.</strong> Оскорбления участников и их родных, травля и провокации запрещены.</li>
@@ -263,7 +344,7 @@
           </ol>
         </section>
 
-        <section class="glass-card p-5 space-y-3" aria-labelledby="rules-general">
+        <section class="glass-card rounded-xl p-5 space-y-3" aria-labelledby="rules-general">
           <h3 id="rules-general" class="text-sm font-bold text-emerald-300">Общие положения</h3>
           <ul class="rule-list rule-list-plain">
             <li>Правила едины для всех участников сервера и сообщества.</li>
@@ -272,7 +353,7 @@
         </section>
 
         <div class="grid grid-cols-2 gap-5">
-          <section class="glass-card p-5 space-y-3" aria-labelledby="rules-text">
+          <section class="glass-card rounded-xl p-5 space-y-3" aria-labelledby="rules-text">
             <h3 id="rules-text" class="text-sm font-bold text-emerald-300">Текстовые каналы и чат</h3>
             <ul class="rule-list rule-list-plain">
               <li>Запрещены спам и сообщения не по теме канала.</li>
@@ -284,7 +365,7 @@
             </ul>
           </section>
 
-          <section class="glass-card p-5 space-y-3" aria-labelledby="rules-voice">
+          <section class="glass-card rounded-xl p-5 space-y-3" aria-labelledby="rules-voice">
             <h3 id="rules-voice" class="text-sm font-bold text-emerald-300">Голосовые каналы</h3>
             <ul class="rule-list rule-list-plain">
               <li>Не включайте микрофон на полную громкость и не издавайте раздражающие звуки.</li>
@@ -296,13 +377,14 @@
 
         <section class="space-y-2" aria-labelledby="faq-new">
           <h3 id="faq-new" class="text-base font-bold text-white">Вопросы новичков</h3>
-          <details class="glass-card faq-item"><summary>Как начать играть?</summary><p>Выберите «Пиратка» и введите ник либо войдите через «Лицензия». Затем выберите сборку внизу баннера на главной и нажмите «Играть». Первая загрузка занимает несколько минут: лаунчер сам скачает игру и Java.</p></details>
-          <details class="glass-card faq-item"><summary>Какую сборку выбрать?</summary><p>Vanilla 26.3 подходит для основного сервера FenixCraft, NeoForge 1.21.1 — для сервера FenixTech с модами. NeoForge 26.2 — сборка с модами на новой версии игры. Варианты с Iris добавляют поддержку шейдеров, но сильнее нагружают компьютер.</p></details>
+          <details class="glass-card faq-item"><summary>Как начать играть?</summary><p>Выберите «Пиратка» и введите ник либо войдите через «Ely.by». Затем выберите сборку внизу баннера на главной и нажмите «Играть». Первая загрузка занимает несколько минут: лаунчер сам скачает игру и Java.</p></details>
+          <details class="glass-card faq-item"><summary>Какую сборку выбрать?</summary><p>FenixCraft — сборка для основного сервера: NeoForge 26.2 с Iris, моды раздаёт сервер сборок. Vanilla всегда запускает последнюю официальную версию игры и работает без интернета, если уже скачана. FenixClient — клиенты на 1.21.11 с Fabric, Forge или без загрузчика. Любую другую версию можно выбрать справа от кнопки «Играть».</p></details>
+          <details class="glass-card faq-item"><summary>Как сразу попасть на сервер?</summary><p>Выберите сервер в правой панели. Под кнопкой «Играть» появится «Сразу на сервер»: после запуска игра сама подключится к нему. Нажмите на эту надпись или снимите галочку в настройках, чтобы попадать в главное меню игры. Кнопка «IP» в карточке сервера копирует его адрес.</p></details>
+          <details class="glass-card faq-item"><summary>Как поиграть на другой версии Minecraft?</summary><p>Нажмите «Любая версия» справа от кнопки «Играть» и выберите версию из списка. Чтобы в списке появились Fabric, Forge и NeoForge, включите в настройках «Отображать модифицированные». Версия скачается при первом запуске.</p></details>
           <details class="glass-card faq-item"><summary>Какие требования к нику?</summary><p>От 3 до 16 символов: латинские буквы, цифры и знак подчёркивания. Русские буквы и пробелы использовать нельзя.</p></details>
-          <details class="glass-card faq-item"><summary>Чем отличаются «Пиратка» и «Лицензия»?</summary><p>«Пиратка» запускает игру под введённым ником, на сервере нужно зарегистрироваться и входить паролем. «Лицензия» подходит владельцам официальной игры: вход выполняется через аккаунт Microsoft, а пароль в лаунчер вводить не нужно.</p></details>
+          <details class="glass-card faq-item"><summary>Чем отличаются «Пиратка» и «Ely.by»?</summary><p>«Пиратка» запускает игру под введённым ником, на сервере нужно зарегистрироваться и входить паролем. «Ely.by» — бесплатный аккаунт на сайте ely.by: ник закреплён за вами, а скин и плащ с сайта видны в игре. Пароль от Ely.by лаунчер отправляет только на ely.by и не сохраняет.</p></details>
           <details class="glass-card faq-item"><summary>Как войти на сервер в режиме «Пиратка»?</summary><p>При первом входе введите в чате <code>/register пароль пароль</code>, затем при каждом входе — <code>/login пароль</code>. Не используйте пароль от других аккаунтов.</p></details>
           <details class="glass-card faq-item"><summary>Лаунчер пишет «Технические работы». Что делать?</summary><p>Сервер сборок сейчас недоступен, поэтому сборки с модами временно не запускаются. Ванильная версия при этом работает. Проверьте интернет и попробуйте позже.</p></details>
-          <details class="glass-card faq-item"><summary>Как сразу попасть на сервер?</summary><p>Выберите сервер в правой панели. Под кнопкой «Играть» появится «Сразу на сервер»: после запуска игра сама подключится к нему. Нажмите на эту надпись или снимите галочку в настройках, чтобы попадать в главное меню игры. Кнопка «IP» в карточке сервера копирует его адрес.</p></details>
           <details class="glass-card faq-item"><summary>Можно ли играть без интернета?</summary><p>Да, в уже скачанную ванильную версию. Сборкам с модами нужен сервер сборок, а для подключения к серверам FenixCraft нужен интернет.</p></details>
           <details class="glass-card faq-item"><summary>Как сменить скин персонажа?</summary><p>В правой панели нажмите «Сменить скин» и выберите PNG-файл скина размером 64×64. Скин сохраняется в лаунчере, вернуть стандартный можно кнопкой рядом.</p></details>
         </section>
@@ -316,7 +398,7 @@
           <details class="glass-card faq-item"><summary>Лаунчер удалил мой мод из сборки</summary><p>Сборки, файлы которых раздаёт сервер, синхронизируются при запуске: посторонние моды удаляются, чтобы у всех игроков был одинаковый набор. Свои моды можно использовать в сборках, для которых сервер не раздаёт файлы.</p></details>
           <details class="glass-card faq-item"><summary>Файлы игры повреждены, как проверить?</summary><p>В консоли нажмите «Проверить ассеты»: все ресурсы будут сверены по контрольным суммам. Недостающие и повреждённые файлы докачаются при следующем запуске.</p></details>
           <details class="glass-card faq-item"><summary>Как указать свою Java или аргументы JVM?</summary><p>В разделе «Настройки» укажите путь к Java и нужные аргументы. Если оставить путь пустым, лаунчер подберёт и скачает подходящую версию сам: Java 25 для версий 26.x и Java 21 для 1.21.1.</p></details>
-          <details class="glass-card faq-item"><summary>Войти через Microsoft не получается</summary><p>Для входа нужен аккаунт с купленной Minecraft: Java Edition и профилем Xbox. Если окно сообщает об ошибке, выполните его подсказку. Пока вход недоступен, можно пользоваться режимом «Пиратка».</p></details>
+          <details class="glass-card faq-item"><summary>Войти через Ely.by не получается</summary><p>Проверьте ник или почту и пароль от ely.by. Если на аккаунте включена двухфакторная защита, лаунчер попросит код из приложения-аутентификатора. Нет аккаунта — нажмите «Регистрация» под формой входа. Пока вход недоступен, можно пользоваться режимом «Пиратка».</p></details>
         </section>
       </div>
 
@@ -331,12 +413,12 @@
             <button id="btn-clear-console" class="text-xs text-slate-400 hover:text-white px-2">Очистить</button>
           </div>
         </div>
-        <pre id="console-output" tabindex="0" class="selectable-console console-output glass-card p-4 h-[32rem] overflow-y-auto text-xs font-mono text-emerald-300 whitespace-pre-wrap focus:outline-none"></pre>
+        <pre id="console-output" tabindex="0" class="selectable-console glass-card p-4 rounded-xl h-[32rem] overflow-y-auto text-xs font-mono text-emerald-300 whitespace-pre-wrap focus:outline-none"></pre>
       </div>
     </main>
 
     <!-- ПРАВАЯ ПАНЕЛЬ -->
-    <aside class="w-72 glass-rail border-l p-4 flex flex-col gap-4 shrink-0">
+    <aside class="w-72 glass-rail border-l border-white/10 p-4 flex flex-col gap-4 shrink-0">
       <section aria-labelledby="servers-heading">
         <div class="flex items-center justify-between mb-2.5">
           <h3 id="servers-heading" class="text-sm font-bold text-white">Мои серверы</h3>
@@ -359,22 +441,27 @@
           <button data-skin-pose="wave" aria-pressed="false">Махать</button>
           <button data-skin-pose="walk" aria-pressed="false">Идти</button>
         </div>
-        <button id="btn-skin-change" class="btn-skin">
-          <svg class="icon"><use href="#i-shirt"/></svg>Сменить скин
-        </button>
+        <div class="skin-actions">
+          <button id="btn-skin-change" class="btn-skin" title="Загрузить свой PNG: виден только в лаунчере">
+            <svg class="icon"><use href="#i-shirt"/></svg>Сменить скин
+          </button>
+          <button id="btn-skin-pick" class="btn-skin btn-skin-pick" title="Скины и плащи сервера: видны в игре">
+            <svg class="icon"><use href="#i-layers"/></svg>Выбрать скин
+          </button>
+        </div>
         <input type="file" id="skin-file-input" accept="image/png" class="hidden" />
       </section>
     </aside>
   </div>
 
   <!-- ОБНОВЛЕНИЕ ЛАУНЧЕРА -->
-  <div id="update-modal" class="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 hidden">
-    <div class="modal-card space-y-4">
+  <div id="update-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div class="modal-card border-emerald-500/30 space-y-4">
       <div>
         <h3 class="text-base font-bold text-white">Доступно обновление лаунчера</h3>
         <p id="update-version-label" class="text-xs text-emerald-400 font-medium">Версия</p>
       </div>
-      <div class="bg-black/40 p-3 border border-white/5 text-xs text-slate-300 whitespace-pre-line max-h-40 overflow-y-auto" id="update-changelog">Загрузка списка изменений…</div>
+      <div class="bg-black/40 rounded-xl p-3 border border-white/5 text-xs text-slate-300 whitespace-pre-line max-h-40 overflow-y-auto" id="update-changelog">Загрузка списка изменений…</div>
       <div class="flex items-center justify-end gap-2 pt-2">
         <button id="btn-update-later" class="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white transition">Позже</button>
         <button id="btn-update-now" class="btn-primary text-xs px-5 py-2">Обновить сейчас</button>
@@ -393,23 +480,9 @@
     </div>
   </div>
 
-  <!-- ВХОД MICROSOFT -->
-  <div id="ms-login-modal" role="dialog" aria-modal="true" aria-labelledby="ms-login-title" class="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 hidden">
-    <div class="modal-card space-y-4">
-      <h3 id="ms-login-title" class="text-base font-bold text-white">Вход через Microsoft</h3>
-      <p class="text-sm text-slate-300">Откройте страницу входа и введите этот код. Лаунчер продолжит сам, пароль в нём вводить не нужно.</p>
-      <div id="ms-login-code" class="selectable-console text-center text-3xl font-black tracking-widest text-emerald-400 py-3 bg-black/40 border border-white/5"></div>
-      <div class="flex items-center justify-end gap-2">
-        <button id="btn-ms-cancel" class="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white transition">Отмена</button>
-        <button id="btn-ms-copy" class="btn-ghost text-xs px-4 py-2">Скопировать код</button>
-        <button id="btn-ms-open" class="btn-primary text-xs px-5 py-2">Открыть страницу</button>
-      </div>
-    </div>
-  </div>
-
   <!-- ОШИБКА -->
-  <div id="error-modal" role="alertdialog" aria-modal="true" aria-labelledby="error-title" aria-describedby="error-message" class="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 hidden">
-    <div class="modal-card is-danger space-y-3">
+  <div id="error-modal" role="alertdialog" aria-modal="true" aria-labelledby="error-title" aria-describedby="error-message" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div class="modal-card border-red-500/30 space-y-3">
       <h3 id="error-title" class="text-base font-bold text-white"></h3>
       <p id="error-message" class="text-sm text-slate-200 selectable-console"></p>
       <p id="error-hint" class="text-xs text-slate-400"></p>

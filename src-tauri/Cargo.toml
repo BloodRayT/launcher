@@ -3,7 +3,7 @@ members = ["core"]
 
 [package]
 name = "fenixcraft-launcher"
-version = "1.0.17"
+version = "1.0.18"
 description = "Official FenixCraft Launcher (Tauri v2)"
 authors = ["BloodRayT"]
 edition = "2021"
@@ -19,6 +19,7 @@ tauri-plugin-opener = "2.0.0"
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+base64 = "0.22"
 tokio = { version = "1.40", features = ["full"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 

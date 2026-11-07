@@ -10,7 +10,8 @@ test('serverAddress adds the port only when it is not the standard one', () => {
 });
 
 test('autoJoinState names the server the game will join', () => {
-  const state = autoJoinState({ server: main, buildVersion: '26.3', enabled: true });
+  assert.equal(main.desc, 'NeoForge • 26.2');
+  const state = autoJoinState({ server: main, buildVersion: '26.2', enabled: true });
 
   assert.equal(state.enabled, true);
   assert.equal(state.serverName, 'FenixCraft');
@@ -35,7 +36,7 @@ test('autoJoinState is off when disabled or nothing is selected', () => {
   assert.equal(autoJoinState({ server: undefined, buildVersion: '26.3', enabled: true }).enabled, false);
 });
 
-test('serversHtml escapes server data and marks online sensors', () => {
+test('serversHtml escapes server data and shows the live player count', () => {
   const html = serversHtml(
     [{ ...main, name: '<b>x</b>' }],
     { 'fenix-main': { online: true, players: 3, maxPlayers: 100 } },
@@ -43,6 +44,7 @@ test('serversHtml escapes server data and marks online sensors', () => {
   );
 
   assert.ok(html.includes('&lt;b&gt;x&lt;/b&gt;'));
-  assert.ok(html.includes('sensor is-online'));
+  assert.ok(html.includes('server-status tabular-nums is-online'));
+  assert.ok(html.includes('3/100'));
   assert.ok(html.includes('data-copy-ip="play.fenixcraft.ru"'));
 });

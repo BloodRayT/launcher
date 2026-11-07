@@ -11,10 +11,71 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const ARTIFACT_PATH: &str = "net/neoforged/neoforge";
 const INSTALLER_METADATA_FILES: [&str; 2] = ["install_profile.json", "version.json"];
 const LIBRARY_CONCURRENCY: usize = 8;
 const LOG_TAIL_LINES: usize = 15;
+
+/// Загрузчики модов с общим форматом установщика: NeoForge вырос из Forge и унаследовал его.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModLoader {
+    NeoForge,
+    Forge,
+}
+
+impl ModLoader {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::NeoForge => "NeoForge",
+            Self::Forge => "Forge",
+        }
+    }
+
+    fn artifact(self) -> &'static str {
+        match self {
+            Self::NeoForge => "neoforge",
+            Self::Forge => "forge",
+        }
+    }
+
+    fn artifact_path(self) -> &'static str {
+        match self {
+            Self::NeoForge => "net/neoforged/neoforge",
+            Self::Forge => "net/minecraftforge/forge",
+        }
+    }
+
+    /// Флаг установки клиента: в NeoForge его переименовали.
+    fn installer_flag(self) -> &'static str {
+        match self {
+            Self::NeoForge => "--install-client",
+            Self::Forge => "--installClient",
+        }
+    }
+
+    /// Начало номера версии загрузчика: NeoForge `21.1.`, Forge `1.21.11-`.
+    pub fn version_prefix(self, minecraft: &str) -> String {
+        match self {
+            Self::NeoForge => neoforge_prefix(minecraft),
+            Self::Forge => format!("{minecraft}-"),
+        }
+    }
+
+    /// Папка установленной версии: `neoforge-21.1.5` или `1.21.11-forge-61.2.5`.
+    fn owns_folder(self, name: &str) -> bool {
+        let name = name.to_lowercase();
+        match self {
+            Self::NeoForge => name.contains("neoforge"),
+            Self::Forge => name.contains("forge") && !name.contains("neoforge"),
+        }
+    }
+
+    fn mavens(self, ctx: &LaunchContext) -> &[String] {
+        match self {
+            Self::NeoForge => &ctx.endpoints.neoforge_mavens,
+            Self::Forge => &ctx.endpoints.forge_mavens,
+        }
+    }
+}
 
 /// Префикс версий NeoForge для версии игры: `1.21.1` → `21.1.`, `1.21` → `21.0.`, `26.1` → `26.1.`.
 pub fn neoforge_prefix(minecraft: &str) -> String {
@@ -42,24 +103,29 @@ fn numeric_parts(version: &str) -> Vec<u64> {
         .collect()
 }
 
-/// Самая новая стабильная версия: бета-версии содержат дефис.
+/// Самая новая стабильная версия: после префикса у бета-версий есть дефис.
 fn latest_stable(versions: &[String], prefix: &str) -> Option<String> {
     versions
         .iter()
-        .filter(|version| version.starts_with(prefix) && !version.contains('-'))
-        .max_by_key(|version| numeric_parts(version))
-        .cloned()
+        .filter_map(|version| Some((version, version.strip_prefix(prefix)?)))
+        .filter(|(_, rest)| !rest.is_empty() && !rest.contains('-'))
+        .max_by_key(|(_, rest)| numeric_parts(rest))
+        .map(|(version, _)| version.clone())
 }
 
-/// Ищет установленный NeoForge именно для этой версии игры.
-pub fn find_installed_neoforge(versions_dir: &Path, minecraft: &str) -> Option<(String, PathBuf)> {
+/// Ищет установленный загрузчик именно для этой версии игры.
+pub fn find_installed_loader(
+    loader: ModLoader,
+    versions_dir: &Path,
+    minecraft: &str,
+) -> Option<(String, PathBuf)> {
     std::fs::read_dir(versions_dir)
         .ok()?
         .flatten()
         .filter(|entry| entry.path().is_dir())
         .find_map(|entry| {
             let name = entry.file_name().to_string_lossy().to_string();
-            if !name.to_lowercase().contains("neoforge") {
+            if !loader.owns_folder(&name) {
                 return None;
             }
             let path = entry.path().join(format!("{name}.json"));
@@ -68,17 +134,22 @@ pub fn find_installed_neoforge(versions_dir: &Path, minecraft: &str) -> Option<(
         })
 }
 
-/// Основной сервер NeoForge доступен не везде, поэтому берётся первый ответивший из списка.
-async fn find_reachable_maven(ctx: &LaunchContext) -> Result<(String, String), LauncherError> {
+/// Основной сервер загрузчика доступен не везде, поэтому берётся первый ответивший из списка.
+async fn find_reachable_maven(
+    ctx: &LaunchContext,
+    loader: ModLoader,
+) -> Result<(String, String), LauncherError> {
+    let name = loader.name();
     let mut any_answer = false;
-    for base in &ctx.endpoints.neoforge_mavens {
+    for base in loader.mavens(ctx) {
         let url = format!(
-            "{}/{ARTIFACT_PATH}/maven-metadata.xml",
-            base.trim_end_matches('/')
+            "{}/{}/maven-metadata.xml",
+            base.trim_end_matches('/'),
+            loader.artifact_path()
         );
         let Ok(response) = ctx.probe_client.get(&url).send().await else {
             ctx.reporter
-                .log(format!("[NeoForge] Сервер {base} недоступен."));
+                .log(format!("[{name}] Сервер {base} недоступен."));
             continue;
         };
         any_answer = true;
@@ -86,17 +157,17 @@ async fn find_reachable_maven(ctx: &LaunchContext) -> Result<(String, String), L
             continue;
         }
         if let Ok(text) = response.text().await {
-            ctx.reporter.log(format!("[NeoForge] Используем {base}"));
+            ctx.reporter.log(format!("[{name}] Используем {base}"));
             return Ok((base.trim_end_matches('/').to_string(), text));
         }
     }
     if any_answer {
-        Err(LauncherError::NeoForgeInstall(
-            "серверы NeoForge не отдают список версий".to_string(),
-        ))
+        Err(LauncherError::NeoForgeInstall(format!(
+            "серверы {name} не отдают список версий"
+        )))
     } else {
         Err(LauncherError::NeedsInternet {
-            what: "NeoForge".to_string(),
+            what: name.to_string(),
         })
     }
 }
@@ -162,7 +233,12 @@ fn installer_libraries(
         .collect())
 }
 
-fn run_installer(java: &str, installer: &Path, root: &Path) -> Result<String, LauncherError> {
+fn run_installer(
+    java: &str,
+    installer: &Path,
+    root: &Path,
+    flag: &str,
+) -> Result<String, LauncherError> {
     let profiles = root.join("launcher_profiles.json");
     if !profiles.exists() {
         // Установщик требует этот файл, потому что рассчитан на официальный лаунчер.
@@ -172,7 +248,7 @@ fn run_installer(java: &str, installer: &Path, root: &Path) -> Result<String, La
     command
         .arg("-jar")
         .arg(installer)
-        .arg("--install-client")
+        .arg(flag)
         .arg(root)
         .current_dir(root);
     hide_console(&mut command);
@@ -191,27 +267,28 @@ fn run_installer(java: &str, installer: &Path, root: &Path) -> Result<String, La
     )))
 }
 
-/// Скачивает и запускает установщик NeoForge для указанной версии игры.
-pub async fn install_neoforge(
+/// Скачивает и запускает установщик загрузчика для указанной версии игры.
+pub async fn install_loader(
     ctx: &LaunchContext,
+    loader: ModLoader,
     minecraft: &str,
     java: &str,
 ) -> Result<(), LauncherError> {
-    let (base, metadata) = find_reachable_maven(ctx).await?;
-    let prefix = neoforge_prefix(minecraft);
+    let name = loader.name();
+    let (base, metadata) = find_reachable_maven(ctx, loader).await?;
+    let prefix = loader.version_prefix(minecraft);
     let version = latest_stable(&parse_versions(&metadata), &prefix).ok_or_else(|| {
-        LauncherError::NeoForgeInstall(format!("нет стабильной версии для Minecraft {minecraft}"))
+        LauncherError::NeoForgeInstall(format!("{name} не вышел для Minecraft {minecraft}"))
     })?;
     ctx.reporter
-        .log(format!("[NeoForge] Устанавливаем {version}..."));
-    ctx.reporter.progress("Установка NeoForge", 10, 100);
+        .log(format!("[{name}] Устанавливаем {version}..."));
+    let stage = format!("Установка {name}");
+    ctx.reporter.progress(&stage, 10, 100);
 
-    let url = format!("{base}/{ARTIFACT_PATH}/{version}/neoforge-{version}-installer.jar");
-    let installer = ctx
-        .root
-        .join("cache")
-        .join("neoforge")
-        .join(format!("neoforge-{version}-installer.jar"));
+    let artifact = loader.artifact();
+    let file_name = format!("{artifact}-{version}-installer.jar");
+    let url = format!("{base}/{}/{version}/{file_name}", loader.artifact_path());
+    let installer = ctx.root.join("cache").join(artifact).join(&file_name);
     let expected = Expected {
         sha1: fetch_sha1(ctx, &url).await,
         ..Expected::default()
@@ -221,31 +298,33 @@ pub async fn install_neoforge(
         .map_err(|err| match err {
             DownloadError::Unreachable(_) | DownloadError::Network(_) => {
                 LauncherError::NeedsInternet {
-                    what: "установщик NeoForge".to_string(),
+                    what: format!("установщик {name}"),
                 }
             }
             DownloadError::Hash | DownloadError::Size { .. } => LauncherError::Checksum {
-                file: "установщик NeoForge".to_string(),
+                file: format!("установщик {name}"),
             },
             other => LauncherError::NeoForgeInstall(format!("{other:?}")),
         })?;
 
     let libs_dir = ctx.root.join("libraries");
-    let items = installer_libraries(&installer, &libs_dir, &ctx.endpoints.neoforge_mavens, &base)?;
+    let items = installer_libraries(&installer, &libs_dir, loader.mavens(ctx), &base)?;
     ensure_files(
         &ctx.client,
         items,
         &ctx.reporter,
-        "Библиотеки NeoForge",
+        &format!("Библиотеки {name}"),
         LIBRARY_CONCURRENCY,
     )
     .await?;
 
-    ctx.reporter.progress("Установка NeoForge", 80, 100);
+    ctx.reporter.progress(&stage, 80, 100);
     let (java, installer_path, root) = (java.to_string(), installer.clone(), ctx.root.clone());
-    let log = tokio::task::spawn_blocking(move || run_installer(&java, &installer_path, &root))
-        .await
-        .map_err(|e| LauncherError::Io(e.to_string()))??;
+    let flag = loader.installer_flag();
+    let log =
+        tokio::task::spawn_blocking(move || run_installer(&java, &installer_path, &root, flag))
+            .await
+            .map_err(|e| LauncherError::Io(e.to_string()))??;
     for line in log
         .lines()
         .rev()
@@ -254,7 +333,7 @@ pub async fn install_neoforge(
         .into_iter()
         .rev()
     {
-        ctx.reporter.log(format!("[NeoForge] {line}"));
+        ctx.reporter.log(format!("[{name}] {line}"));
     }
     Ok(())
 }
@@ -288,6 +367,43 @@ mod tests {
     }
 
     #[test]
+    fn newest_forge_build_is_chosen_for_the_game_version() {
+        let xml = "<versions><version>1.21.11-61.2.5</version><version>1.21.11-61.2.10</version>\
+                   <version>1.21.1-52.1.0</version><version>1.7.10-10.13.4.1614-1.7.10</version></versions>";
+        let versions = parse_versions(xml);
+        let prefix = ModLoader::Forge.version_prefix("1.21.11");
+
+        assert_eq!(prefix, "1.21.11-");
+        assert_eq!(
+            latest_stable(&versions, &prefix).as_deref(),
+            Some("1.21.11-61.2.10")
+        );
+        assert_eq!(
+            latest_stable(&versions, &ModLoader::Forge.version_prefix("1.7.10")),
+            None
+        );
+    }
+
+    #[test]
+    fn forge_and_neoforge_folders_are_told_apart() {
+        let dir = tempfile::tempdir().unwrap();
+        for name in ["neoforge-21.11.5", "1.21.11-forge-61.2.5"] {
+            let folder = dir.path().join(name);
+            std::fs::create_dir_all(&folder).unwrap();
+            std::fs::write(
+                folder.join(format!("{name}.json")),
+                json!({ "inheritsFrom": "1.21.11" }).to_string(),
+            )
+            .unwrap();
+        }
+
+        let forge = find_installed_loader(ModLoader::Forge, dir.path(), "1.21.11").unwrap();
+        let neo = find_installed_loader(ModLoader::NeoForge, dir.path(), "1.21.11").unwrap();
+        assert_eq!(forge.0, "1.21.11-forge-61.2.5");
+        assert_eq!(neo.0, "neoforge-21.11.5");
+    }
+
+    #[test]
     fn installed_neoforge_must_match_the_game_version() {
         let dir = tempfile::tempdir().unwrap();
         let version = dir.path().join("neoforge-21.1.5");
@@ -298,9 +414,9 @@ mod tests {
         )
         .unwrap();
 
-        let found = find_installed_neoforge(dir.path(), "1.21.1").unwrap();
+        let found = find_installed_loader(ModLoader::NeoForge, dir.path(), "1.21.1").unwrap();
         assert_eq!(found.0, "neoforge-21.1.5");
-        assert!(find_installed_neoforge(dir.path(), "1.21.4").is_none());
+        assert!(find_installed_loader(ModLoader::NeoForge, dir.path(), "1.21.4").is_none());
     }
 
     #[test]

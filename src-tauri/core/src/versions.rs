@@ -50,12 +50,19 @@ fn read_json(path: &Path) -> Option<Value> {
     serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()
 }
 
-/// Берёт свежий список версий, а если он недоступен — последний сохранённый.
-async fn load_manifest(ctx: &LaunchContext) -> Option<Value> {
-    let cache = ctx.root.join("versions").join("version_manifest_v2.json");
-    let response = ctx
-        .probe_client
-        .get(&ctx.endpoints.version_manifest)
+/// Где хранится последний полученный список версий Mojang.
+pub fn manifest_cache(root: &Path) -> PathBuf {
+    root.join("versions").join("version_manifest_v2.json")
+}
+
+/// Список версий Mojang: свежий или, без сети, сохранённый. Второе значение — взят ли он из кеша.
+pub async fn fetch_manifest(
+    client: &reqwest::Client,
+    url: &str,
+    cache: &Path,
+) -> Option<(Value, bool)> {
+    let response = client
+        .get(url)
         .send()
         .await
         .and_then(reqwest::Response::error_for_status);
@@ -65,13 +72,41 @@ async fn load_manifest(ctx: &LaunchContext) -> Option<Value> {
     };
     if let Some(bytes) = fresh {
         if let Ok(manifest) = serde_json::from_slice::<Value>(&bytes) {
-            let _ = write_atomic(&cache, &bytes);
-            return Some(manifest);
+            let _ = write_atomic(cache, &bytes);
+            return Some((manifest, false));
         }
     }
-    ctx.reporter
-        .log("[Сеть] Список версий Mojang недоступен, используем сохранённые данные.");
-    read_json(&cache)
+    read_json(cache).map(|manifest| (manifest, true))
+}
+
+/// Релизы от новых к старым, без снапшотов и бета-версий.
+pub fn release_ids(manifest: &Value) -> Vec<String> {
+    manifest["versions"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|version| version["type"].as_str() == Some("release"))
+        .filter_map(|version| version["id"].as_str())
+        .filter(|id| is_safe_profile_id(id))
+        .map(str::to_string)
+        .collect()
+}
+
+/// Последний релиз по списку Mojang.
+pub fn latest_release(manifest: &Value) -> Option<&str> {
+    manifest["latest"]["release"].as_str()
+}
+
+/// Берёт свежий список версий, а если он недоступен — последний сохранённый.
+async fn load_manifest(ctx: &LaunchContext) -> Option<Value> {
+    let cache = manifest_cache(&ctx.root);
+    let (manifest, cached) =
+        fetch_manifest(&ctx.probe_client, &ctx.endpoints.version_manifest, &cache).await?;
+    if cached {
+        ctx.reporter
+            .log("[Сеть] Список версий Mojang недоступен, используем сохранённые данные.");
+    }
+    Some(manifest)
 }
 
 /// Возвращает id версии и её описание. Для установленной версии интернет не нужен.
@@ -165,6 +200,23 @@ mod tests {
             select_version(&manifest(), "1.21.1-neoforge").unwrap().id,
             "1.21.1"
         );
+    }
+
+    #[test]
+    fn only_releases_are_listed_newest_first() {
+        let manifest = json!({
+            "latest": { "release": "26.3", "snapshot": "26w10a" },
+            "versions": [
+                { "id": "26w10a", "type": "snapshot" },
+                { "id": "26.3", "type": "release" },
+                { "id": "1.21.11", "type": "release" },
+                { "id": "b1.7.3", "type": "old_beta" },
+                { "id": "../evil", "type": "release" }
+            ]
+        });
+
+        assert_eq!(release_ids(&manifest), vec!["26.3", "1.21.11"]);
+        assert_eq!(latest_release(&manifest), Some("26.3"));
     }
 
     #[test]
