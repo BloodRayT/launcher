@@ -13,7 +13,7 @@ pub enum LauncherError {
     Download { file: String, reason: String },
     #[error("Файл {file} скачан с ошибкой: контрольная сумма не совпала.")]
     Checksum { file: String },
-    #[error("Не удалось установить NeoForge: {0}.")]
+    #[error("Не удалось установить загрузчик модов: {0}.")]
     NeoForgeInstall(String),
     #[error("Не удалось подготовить Java {major}: {reason}.")]
     Java { major: u32, reason: String },
@@ -27,6 +27,12 @@ pub enum LauncherError {
     MicrosoftSessionExpired,
     #[error("На этом аккаунте Microsoft нет Minecraft: Java Edition.")]
     MicrosoftNoGame,
+    #[error("Не удалось войти через Ely.by: {0}.")]
+    ElyLogin(String),
+    #[error("Аккаунт Ely.by защищён двухфакторной аутентификацией: введите код из приложения.")]
+    ElyTwoFactor,
+    #[error("Вход через Ely.by устарел.")]
+    ElySessionExpired,
     #[error("Файлы игры содержат некорректные данные: {0}.")]
     BadData(String),
     #[error("Ошибка работы с файлами: {0}.")]
@@ -64,7 +70,7 @@ impl LauncherError {
             ),
             Self::NeoForgeInstall(_) => (
                 "neoforge_install_failed",
-                "NeoForge не установился",
+                "Загрузчик модов не установился",
                 "Нажмите «Играть» ещё раз. Если ошибка повторится, сохраните журнал из консоли.",
             ),
             Self::Java { .. } => (
@@ -91,6 +97,21 @@ impl LauncherError {
                 "microsoft_session_expired",
                 "Нужно войти заново",
                 "Нажмите «Войти через Microsoft» в блоке профиля.",
+            ),
+            Self::ElyLogin(_) => (
+                "ely_login_failed",
+                "Не удалось войти через Ely.by",
+                "Проверьте ник или почту и пароль. Забытый пароль восстанавливается на сайте ely.by.",
+            ),
+            Self::ElyTwoFactor => (
+                "ely_two_factor",
+                "Нужен код подтверждения",
+                "Введите шестизначный код из приложения-аутентификатора и войдите ещё раз.",
+            ),
+            Self::ElySessionExpired => (
+                "ely_session_expired",
+                "Нужно войти заново",
+                "Выберите «Ely.by» в блоке профиля и войдите ещё раз.",
             ),
             Self::MicrosoftNoGame => (
                 "microsoft_no_game",

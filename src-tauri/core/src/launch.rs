@@ -10,9 +10,10 @@ use crate::java::{ensure_java, hide_console, required_java_major};
 use crate::libraries::{argument_allowed, current_os, extract_natives, LibrarySet};
 use crate::microsoft::MinecraftAccount;
 use crate::mods::ensure_shader_mods;
-use crate::neoforge::{find_installed_neoforge, install_neoforge};
+use crate::neoforge::{find_installed_loader, install_loader, ModLoader};
 use crate::reporter::Reporter;
 use crate::safety::is_valid_username;
+use crate::skin_loader::{ensure_skin_mod, write_loader_config};
 use crate::versions::{base_version, load_version_json};
 use crate::Endpoints;
 use serde_json::Value;
@@ -74,6 +75,10 @@ pub struct PlayerIdentity {
     pub access_token: String,
     pub xuid: String,
     pub licensed: bool,
+    /// `msa` для Microsoft, `mojang` для пиратки и Ely.by.
+    pub user_type: String,
+    /// authlib-injector для Ely.by: аргумент JVM `-javaagent:…=ely.by`.
+    pub java_agent: Option<String>,
 }
 
 impl PlayerIdentity {
@@ -90,6 +95,8 @@ impl PlayerIdentity {
             access_token: OFFLINE_ACCESS_TOKEN.to_string(),
             xuid: "0".to_string(),
             licensed: false,
+            user_type: "mojang".to_string(),
+            java_agent: None,
         }
     }
 
@@ -101,6 +108,21 @@ impl PlayerIdentity {
             access_token: account.access_token,
             xuid: account.xuid,
             licensed: true,
+            user_type: "msa".to_string(),
+            java_agent: None,
+        }
+    }
+
+    /// Аккаунт Ely.by. authlib-injector подключается перед запуском: `java_agent` заполняет лаунчер.
+    pub fn ely(username: &str, uuid: &str, access_token: &str) -> Self {
+        Self {
+            username: username.to_string(),
+            uuid: uuid.to_string(),
+            access_token: access_token.to_string(),
+            xuid: "0".to_string(),
+            licensed: true,
+            user_type: "mojang".to_string(),
+            java_agent: None,
         }
     }
 }
@@ -118,12 +140,15 @@ pub struct LaunchPlan {
 pub enum Loader {
     Vanilla,
     Fabric,
+    Forge,
     NeoForge,
 }
 
 pub fn loader_of(profile: &str) -> Loader {
     if profile.contains("neoforge") {
         Loader::NeoForge
+    } else if profile.contains("forge") {
+        Loader::Forge
     } else if profile.contains("fabric") || profile.ends_with("-iris") {
         Loader::Fabric
     } else {
@@ -463,10 +488,47 @@ fn native_library_dir(version: &Value, natives_root: &Path) -> PathBuf {
     }
 }
 
+/// Аргументы, которыми лаунчер передаёт игроку сессию и папки: свои значения для них не принимаются.
+/// Повтор любого из них в своих аргументах приводит к ошибке Minecraft «аргумент указан дважды».
+const RESERVED_GAME_ARGS: [&str; 20] = [
+    "--username",
+    "--uuid",
+    "--accessToken",
+    "--xuid",
+    "--userType",
+    "--version",
+    "--versionType",
+    "--gameDir",
+    "--assetsDir",
+    "--assetIndex",
+    "--clientId",
+    "--width",
+    "--height",
+    "--userProperties",
+    "--quickPlayPath",
+    "--quickPlaySingleplayer",
+    "--quickPlayMultiplayer",
+    "--quickPlayRealms",
+    "--server",
+    "--port",
+];
+
+/// Аргумент лаунчера, в том числе в форме `--имя=значение` и в сокращении (`--user` для `--username`).
+fn is_reserved_game_arg(arg: &str) -> bool {
+    let name = arg.split('=').next().unwrap_or(arg).to_ascii_lowercase();
+    name.len() > 2
+        && RESERVED_GAME_ARGS
+            .iter()
+            .any(|reserved| reserved.to_ascii_lowercase().starts_with(&name))
+}
+
+/// Выключенные в настройках аргументы сохраняются, но игре не передаются.
 fn custom_jvm_args(config: &LauncherConfig) -> impl Iterator<Item = String> + '_ {
+    let enabled = config.custom_args_enabled;
     config
         .jvm_args
         .split_whitespace()
+        .filter(move |_| enabled)
         .filter(|arg| !arg.starts_with("-Xmx") && !arg.starts_with("-Xms"))
         .map(str::to_string)
 }
@@ -479,11 +541,6 @@ struct GameArgs<'a> {
 }
 
 fn game_args(config: &LauncherConfig, game_dir: &Path, game: &GameArgs<'_>) -> Vec<String> {
-    let user_type = if game.identity.licensed {
-        "msa"
-    } else {
-        "mojang"
-    };
     let pairs = [
         ("--username", game.identity.username.clone()),
         ("--version", game.version.to_string()),
@@ -494,22 +551,97 @@ fn game_args(config: &LauncherConfig, game_dir: &Path, game: &GameArgs<'_>) -> V
         ("--accessToken", game.identity.access_token.clone()),
         ("--clientId", "0".to_string()),
         ("--xuid", game.identity.xuid.clone()),
-        ("--userType", user_type.to_string()),
+        ("--userType", game.identity.user_type.clone()),
         ("--versionType", "release".to_string()),
         ("--width", config.width.to_string()),
         ("--height", config.height.to_string()),
     ];
-    pairs
+    let mut args: Vec<String> = pairs
         .into_iter()
         .chain(quick_play_target(config).map(|target| ("--quickPlayMultiplayer", target)))
         .flat_map(|(name, value)| [name.to_string(), value])
-        .collect()
+        .collect();
+    args.extend(custom_game_args(config));
+    args
+}
+
+/// Свои аргументы Minecraft. Аргумент из списка лаунчера пропускается вместе со своим значением.
+fn custom_game_args(config: &LauncherConfig) -> Vec<String> {
+    if !config.custom_args_enabled {
+        return Vec::new();
+    }
+    let mut kept = Vec::new();
+    let mut skip_value = false;
+    for arg in config.game_args.split_whitespace() {
+        if skip_value && !arg.starts_with("--") {
+            skip_value = false;
+            continue;
+        }
+        let reserved = arg.starts_with("--") && is_reserved_game_arg(arg);
+        // У формы `--имя=значение` отдельного значения нет.
+        skip_value = reserved && !arg.contains('=');
+        if !reserved {
+            kept.push(arg.to_string());
+        }
+    }
+    kept
+}
+
+/// Скины из лаунчера в сборках с модами. Сборки сервера сборок получают мод оттуда же,
+/// иначе синхронизация удаляла бы его при каждом запуске.
+async fn prepare_skins(
+    ctx: &LaunchContext,
+    config: &LauncherConfig,
+    game_dir: &Path,
+    minecraft: &str,
+    loader: &str,
+    managed_by_backend: bool,
+) {
+    if let Err(err) = write_loader_config(game_dir, &config.backend_url) {
+        ctx.reporter
+            .log(format!("[Скины] Конфиг CustomSkinLoader не записан: {err}"));
+    }
+    if !managed_by_backend {
+        ensure_skin_mod(ctx, game_dir, minecraft, loader).await;
+    }
+}
+
+/// Iris и Sodium вышли не для каждой версии игры: без них сборка запускается без шейдеров.
+async fn ensure_optional_shaders(
+    ctx: &LaunchContext,
+    game_dir: &Path,
+    minecraft: &str,
+    loader: &str,
+) -> Result<(), LauncherError> {
+    match ensure_shader_mods(ctx, game_dir, minecraft, loader).await {
+        Err(LauncherError::BadData(reason)) => {
+            ctx.reporter
+                .log(format!("[Моды] Шейдеры пропущены: {reason}."));
+            Ok(())
+        }
+        other => other,
+    }
 }
 
 /// Адрес выбранного сервера для входа сразу после запуска (Minecraft 1.20 и новее).
+/// Быстрый вход на сервер появился в Minecraft 1.20; последняя версия и номера 26.x его поддерживают.
+fn supports_quick_play(profile: &str) -> bool {
+    let Some(version) = base_version(profile) else {
+        return true;
+    };
+    let mut parts = version
+        .split('.')
+        .map(|part| part.parse::<u32>().unwrap_or(0));
+    match (parts.next(), parts.next()) {
+        (Some(1), Some(minor)) => minor >= 20,
+        (Some(major), _) => major > 1,
+        _ => false,
+    }
+}
+
 fn quick_play_target(config: &LauncherConfig) -> Option<String> {
     let host = config.selected_server.trim();
-    if !config.auto_join || host.is_empty() {
+    if !config.auto_join || host.is_empty() || !supports_quick_play(&config.selected_version) {
         return None;
     }
     let server = config
@@ -531,11 +663,14 @@ fn version_in(text: &str) -> Option<&str> {
         .find(|part| part.contains('.') && part.split('.').all(|piece| !piece.is_empty()))
 }
 
-async fn plan_neoforge(
+/// NeoForge и Forge ставятся одним установщиком и запускаются одинаково.
+async fn plan_forge_family(
     ctx: &LaunchContext,
     config: &LauncherConfig,
     game_dir: &Path,
     identity: &PlayerIdentity,
+    loader: ModLoader,
+    managed_by_backend: bool,
 ) -> Result<LaunchPlan, LauncherError> {
     let minecraft = base_version(&config.selected_version)
         .ok_or_else(|| {
@@ -550,11 +685,11 @@ async fn plan_neoforge(
     let java = ensure_java(ctx, &config.java_path, major).await?;
 
     let versions_dir = ctx.root.join("versions");
-    if find_installed_neoforge(&versions_dir, &minecraft).is_none() {
-        install_neoforge(ctx, &minecraft, &java).await?;
+    if find_installed_loader(loader, &versions_dir, &minecraft).is_none() {
+        install_loader(ctx, loader, &minecraft, &java).await?;
     }
     let (neo_id, neo_path) =
-        find_installed_neoforge(&versions_dir, &minecraft).ok_or_else(|| {
+        find_installed_loader(loader, &versions_dir, &minecraft).ok_or_else(|| {
             LauncherError::NeoForgeInstall("установщик не создал файлы версии".to_string())
         })?;
     let neo_json: Value = serde_json::from_str(&std::fs::read_to_string(&neo_path)?)
@@ -571,7 +706,7 @@ async fn plan_neoforge(
         &ctx.client,
         std::mem::take(&mut libraries.downloads),
         &ctx.reporter,
-        "Файлы NeoForge",
+        &format!("Файлы {}", loader.name()),
         LIBRARY_CONCURRENCY,
     )
     .await?;
@@ -581,9 +716,19 @@ async fn plan_neoforge(
         vanilla.classpath.push(neo_jar);
     }
 
+    let mod_loader = loader.name().to_lowercase();
     if wants_shaders(&config.selected_version) {
-        ensure_shader_mods(ctx, game_dir, &minecraft, "neoforge").await?;
+        ensure_optional_shaders(ctx, game_dir, &minecraft, &mod_loader).await?;
     }
+    prepare_skins(
+        ctx,
+        config,
+        game_dir,
+        &minecraft,
+        &mod_loader,
+        managed_by_backend,
+    )
+    .await;
 
     let classpath = join_classpath(&vanilla.classpath);
     let placeholders = JvmPlaceholders {
@@ -602,6 +747,8 @@ async fn plan_neoforge(
             .filter_map(Value::as_str)
             .map(|text| placeholders.apply(text)),
     );
+    // Ely.by: authlib-injector подключается до основного класса игры.
+    args.extend(identity.java_agent.iter().cloned());
     args.extend(custom_jvm_args(config));
     args.push(
         neo_json["mainClass"]
@@ -641,6 +788,7 @@ async fn plan_vanilla_or_fabric(
     config: &LauncherConfig,
     game_dir: &Path,
     identity: &PlayerIdentity,
+    managed_by_backend: bool,
 ) -> Result<LaunchPlan, LauncherError> {
     let profile = &config.selected_version;
     let mut vanilla = prepare_vanilla(ctx, profile).await?;
@@ -657,8 +805,17 @@ async fn plan_vanilla_or_fabric(
         main_class = fabric.main_class;
         fabric_jvm_args = fabric.jvm_args;
         if wants_shaders(profile) {
-            ensure_shader_mods(ctx, game_dir, &vanilla.version, "fabric").await?;
+            ensure_optional_shaders(ctx, game_dir, &vanilla.version, "fabric").await?;
         }
+        prepare_skins(
+            ctx,
+            config,
+            game_dir,
+            &vanilla.version,
+            "fabric",
+            managed_by_backend,
+        )
+        .await;
     }
 
     let classpath = join_classpath(&vanilla.classpath);
@@ -679,6 +836,8 @@ async fn plan_vanilla_or_fabric(
         args.push("--sun-misc-unsafe-memory-access=allow".to_string());
     }
     args.extend(fabric_jvm_args);
+    // Ely.by: authlib-injector подключается до основного класса игры.
+    args.extend(identity.java_agent.iter().cloned());
     args.extend(custom_jvm_args(config));
     args.push(main_class);
     args.extend(game_args(
@@ -773,7 +932,8 @@ pub async fn prepare_launch_as(
     config: &LauncherConfig,
     identity: &PlayerIdentity,
 ) -> Result<LaunchPlan, LauncherError> {
-    if !is_valid_username(&identity.username) {
+    // Ник с сервера входа (Microsoft, Ely.by) не проверяется правилами пиратки: например, у Ely.by бывает дефис.
+    if !identity.licensed && !is_valid_username(&identity.username) {
         return Err(LauncherError::InvalidUsername);
     }
     let profile = &config.selected_version;
@@ -788,11 +948,25 @@ pub async fn prepare_launch_as(
             .log("[Сборка] Сохранённого манифеста нет, запускаем с файлами на диске.");
     }
     ensure_default_game_options(&game_dir)?;
+    let managed = matches!(outcome, SyncOutcome::Fresh | SyncOutcome::Cached);
 
     match loader_of(profile) {
-        Loader::NeoForge => plan_neoforge(ctx, config, &game_dir, identity).await,
+        Loader::NeoForge => {
+            plan_forge_family(
+                ctx,
+                config,
+                &game_dir,
+                identity,
+                ModLoader::NeoForge,
+                managed,
+            )
+            .await
+        }
+        Loader::Forge => {
+            plan_forge_family(ctx, config, &game_dir, identity, ModLoader::Forge, managed).await
+        }
         Loader::Vanilla | Loader::Fabric => {
-            plan_vanilla_or_fabric(ctx, config, &game_dir, identity).await
+            plan_vanilla_or_fabric(ctx, config, &game_dir, identity, managed).await
         }
     }
 }
@@ -902,6 +1076,9 @@ mod tests {
         assert_eq!(loader_of("1.21.1-neoforge"), Loader::NeoForge);
         assert_eq!(loader_of("1.21.1-iris-neoforge"), Loader::NeoForge);
         assert_eq!(loader_of("26.2-iris-neoforge"), Loader::NeoForge);
+        assert_eq!(loader_of("1.21.11-forge"), Loader::Forge);
+        assert_eq!(loader_of("1.21.11-iris-forge"), Loader::Forge);
+        assert!(!wants_shaders("1.21.11-forge"));
         assert!(wants_shaders("26.2-iris-neoforge"));
         assert_eq!(base_version("26.2-iris-neoforge"), Some("26.2"));
     }
@@ -995,6 +1172,49 @@ mod tests {
     }
 
     #[test]
+    fn turned_off_custom_arguments_are_not_passed_to_the_game() {
+        let config = LauncherConfig {
+            jvm_args: "-XX:+UseG1GC".to_string(),
+            game_args: "--fullscreen".to_string(),
+            custom_args_enabled: false,
+            ..LauncherConfig::default()
+        };
+
+        assert_eq!(custom_jvm_args(&config).count(), 0);
+        assert!(custom_game_args(&config).is_empty());
+    }
+
+    #[test]
+    fn custom_game_arguments_cannot_replace_the_session() {
+        let config = LauncherConfig {
+            game_args: "--fullscreen --username Hacker --demo --uuid".to_string(),
+            ..LauncherConfig::default()
+        };
+
+        assert_eq!(custom_game_args(&config), vec!["--fullscreen", "--demo"]);
+    }
+
+    #[test]
+    fn launcher_arguments_cannot_be_repeated_in_any_spelling() {
+        let config = LauncherConfig {
+            game_args: "--width 1920 --user=Hacker --quickPlayMultiplayer x --fullscreen --demo"
+                .to_string(),
+            ..LauncherConfig::default()
+        };
+
+        assert_eq!(custom_game_args(&config), vec!["--fullscreen", "--demo"]);
+    }
+
+    #[test]
+    fn quick_join_is_only_for_versions_that_support_it() {
+        assert!(supports_quick_play("latest-vanilla"));
+        assert!(supports_quick_play("26.2-iris-neoforge"));
+        assert!(supports_quick_play("1.20.1-forge"));
+        assert!(!supports_quick_play("1.19.4-vanilla"));
+        assert!(!supports_quick_play("1.12.2-forge"));
+    }
+
+    #[test]
     fn narrator_is_forced_off_without_touching_other_options() {
         assert_eq!(
             with_narrator_off("narrator:2\nfov:0.5\n"),
@@ -1082,6 +1302,7 @@ mod tests {
     #[test]
     fn game_joins_the_selected_server_right_after_start() {
         let config = LauncherConfig {
+            selected_version: "26.2-iris-neoforge".to_string(),
             selected_server: "play.fenixcraft.ru".to_string(),
             ..LauncherConfig::default()
         };
@@ -1098,6 +1319,7 @@ mod tests {
         custom[0].ip = "my.server.test".to_string();
         custom[0].port = 25570;
         let config = LauncherConfig {
+            selected_version: "26.2-iris-neoforge".to_string(),
             selected_server: "my.server.test".to_string(),
             custom_servers: custom,
             ..LauncherConfig::default()

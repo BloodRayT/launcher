@@ -20,3 +20,6 @@ services:
     volumes:
       - ./storage:/app/storage
       - ./servers.json:/app/servers.json
+      # Каталог скинов и плащей (кладёт администратор) и выбор игроков.
+      - ./catalog:/app/catalog
+      - ./data:/app/data

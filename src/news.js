@@ -11,8 +11,8 @@ export const FALLBACK_NEWS = Object.freeze([
 
 /** Классы выбираются только из этого списка: данные новостей приходят извне. */
 const TAG_CLASSES = new Map([
-  ['amber', 'tag-amber'],
-  ['neon', 'tag-neon'],
+  ['amber', 'bg-amber-500 text-slate-950'],
+  ['cyan', 'bg-cyan-500 text-slate-950'],
 ]);
 
 export function imageOf(post) {
@@ -54,7 +54,7 @@ export function homeCards(posts, releases, freshIds) {
         attributes: 'data-open-news="0"',
         image: imageOf(post),
         tag: post.tag || 'VK.RU/FENIXCRAFT',
-        tagClass: TAG_CLASSES.get(post.tone) ?? 'tag-emerald',
+        tagClass: TAG_CLASSES.get(post.tone) ?? 'bg-emerald-500 text-slate-950',
         title: post.title || 'Новость FenixCraft',
         text: post.text,
         date: post.date,
@@ -67,7 +67,7 @@ export function homeCards(posts, releases, freshIds) {
         attributes: 'data-open-updates="true"',
         image: LOCAL_NEWS_IMAGES[0],
         tag: 'Лаунчер',
-        tagClass: 'tag-neon',
+        tagClass: 'bg-cyan-500 text-slate-950',
         title: latest ? `Обновление ${latest.version}` : 'Обновления лаунчера',
         text: latest ? latest.body.replace(/[#*`]/g, '').trim() || latest.name : 'История версий появится, когда лаунчер свяжется с GitHub.',
         date: latest ? formatReleaseDate(latest.date) : 'GitHub',

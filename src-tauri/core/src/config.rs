@@ -7,17 +7,29 @@ const DEFAULT_BACKEND_URL: &str = "http://fenixcraft.ru/api/launcher";
 /// Адрес из прежних версий: сайт пока работает только по HTTP.
 const OLD_BACKEND_URL: &str = "https://fenixcraft.ru/api/launcher";
 const DEFAULT_JVM_ARGS: &str = "-XX:+UnlockExperimentalVMOptions -XX:+UseG1GC -XX:G1NewSizePercent=20 -XX:G1ReservePercent=20 -XX:MaxGCPauseMillis=50 -XX:G1HeapRegionSize=32M";
-/// Сборки лаунчера. Версии совпадают с серверами: Purpur 26.3, NeoForge 1.21.1 и NeoForge 26.2.
+/// Сборки на главной в порядке показа: FenixCraft (NeoForge 26.2 с сервером сборок),
+/// последняя ванильная версия и три клиента FenixClient на 1.21.11.
 pub const PROFILES: [&str; 5] = [
-    "26.3-vanilla",
-    "26.3-iris",
-    "1.21.1-neoforge",
-    "1.21.1-iris-neoforge",
     "26.2-iris-neoforge",
+    "latest-vanilla",
+    "1.21.11-iris",
+    "1.21.11-forge",
+    "1.21.11-vanilla",
+];
+/// Окончания id для версий из списка «Любая версия»: `1.20.1-vanilla`, `1.20.1-iris` и т. д.
+const CUSTOM_PROFILE_SUFFIXES: [&str; 7] = [
+    "-vanilla",
+    "-fabric",
+    "-iris",
+    "-iris-fabric",
+    "-forge",
+    "-neoforge",
+    "-iris-neoforge",
 ];
 /// Скин хранится в конфиге как data URL; файл 64×64 занимает несколько килобайт.
 pub const MAX_SKIN_DATA_LEN: usize = 64 * 1024;
-const DEFAULT_PROFILE: &str = PROFILES[0];
+/// По умолчанию выбрана последняя официальная версия: она работает и без сервера сборок.
+const DEFAULT_PROFILE: &str = PROFILES[1];
 /// Серверы из прежних версий, которых больше нет.
 const REMOVED_SERVER_IDS: [&str; 2] = ["fenix-rpg", "fenix-pvp"];
 const REMOVED_SERVER_ADDRESSES: [&str; 2] = ["rpg.fenixcraft.ru", "pvp.fenixcraft.ru"];
@@ -56,7 +68,7 @@ pub fn default_servers() -> Vec<ServerConfigItem> {
         server(
             "fenix-main",
             "FenixCraft",
-            "Vanilla • 26.3",
+            "NeoForge • 26.2",
             "play.fenixcraft.ru",
             "🦅",
             1000,
@@ -162,6 +174,46 @@ pub struct LauncherConfig {
     /// Заходить на выбранный сервер сразу после запуска игры.
     #[serde(default = "default_auto_join")]
     pub auto_join: bool,
+    /// Передавать ли игре пользовательские аргументы. Выключенные остаются в настройках.
+    #[serde(default = "default_custom_args_enabled")]
+    pub custom_args_enabled: bool,
+    /// Дополнительные аргументы Minecraft, например `--fullscreen`.
+    #[serde(default)]
+    pub game_args: String,
+    /// Случайный ключ этой установки: закрепляет ник за ней на сервере скинов.
+    /// Профиль Ely.by: ник и UUID. Токены входа лежат только в системном хранилище.
+    #[serde(default)]
+    pub ely_username: String,
+    #[serde(default)]
+    pub ely_uuid: String,
+    #[serde(default)]
+    pub skin_token: String,
+    /// Скин и плащ из каталога сервера, выбранные в окне «Выбрать скин».
+    #[serde(default)]
+    pub skin_choice: String,
+    #[serde(default)]
+    pub cape_choice: String,
+}
+
+fn default_custom_args_enabled() -> bool {
+    true
+}
+
+/// Версия из списка «Любая версия»: номер релиза и известное окончание загрузчика.
+pub fn is_custom_profile(id: &str) -> bool {
+    CUSTOM_PROFILE_SUFFIXES.iter().any(|suffix| {
+        id.strip_suffix(suffix).is_some_and(|version| {
+            version.contains('.')
+                && version
+                    .split('.')
+                    .all(|part| !part.is_empty() && part.chars().all(|ch| ch.is_ascii_digit()))
+        })
+    })
+}
+
+/// Сборка, которую можно запустить: одна из встроенных или версия из общего списка.
+pub fn is_known_profile(id: &str) -> bool {
+    PROFILES.contains(&id) || is_custom_profile(id)
 }
 
 fn default_auto_join() -> bool {
@@ -190,6 +242,13 @@ impl Default for LauncherConfig {
             game_dir_path: String::new(),
             skin_data: String::new(),
             auto_join: default_auto_join(),
+            custom_args_enabled: default_custom_args_enabled(),
+            game_args: String::new(),
+            ely_username: String::new(),
+            ely_uuid: String::new(),
+            skin_token: String::new(),
+            skin_choice: String::new(),
+            cape_choice: String::new(),
         }
     }
 }
@@ -197,10 +256,10 @@ impl Default for LauncherConfig {
 impl LauncherConfig {
     /// Приводит значения к допустимым. Лицензия без сохранённого профиля считается пираткой.
     pub fn normalized(self) -> Self {
-        let account_type = if self.account_type == "microsoft" && !self.ms_uuid.is_empty() {
-            "microsoft"
-        } else {
-            "offline"
+        let account_type = match self.account_type.as_str() {
+            "microsoft" if !self.ms_uuid.is_empty() => "microsoft",
+            "ely" if !self.ely_uuid.is_empty() => "ely",
+            _ => "offline",
         };
         let backend_is_default =
             self.backend_url.trim().is_empty() || self.backend_url == OLD_BACKEND_URL;
@@ -215,7 +274,7 @@ impl LauncherConfig {
                 self.backend_url
             },
             custom_servers: migrated_servers(self.custom_servers),
-            selected_version: if PROFILES.contains(&self.selected_version.as_str()) {
+            selected_version: if is_known_profile(&self.selected_version) {
                 self.selected_version
             } else {
                 default_selected_version()
@@ -386,6 +445,25 @@ mod tests {
     }
 
     #[test]
+    fn ely_account_needs_a_saved_profile() {
+        let signed_in = LauncherConfig {
+            account_type: "ely".to_string(),
+            ely_username: "Fenix".to_string(),
+            ely_uuid: "ffc8fdc95824509e8a57c99b940fb996".to_string(),
+            ..LauncherConfig::default()
+        }
+        .normalized();
+        let without_profile = LauncherConfig {
+            account_type: "ely".to_string(),
+            ..LauncherConfig::default()
+        }
+        .normalized();
+
+        assert_eq!(signed_in.account_type, "ely");
+        assert_eq!(without_profile.account_type, "offline");
+    }
+
+    #[test]
     fn old_https_backend_address_moves_to_http() {
         let old = LauncherConfig {
             backend_url: OLD_BACKEND_URL.to_string(),
@@ -419,7 +497,7 @@ mod tests {
             ..mine.clone()
         };
         let config = LauncherConfig {
-            selected_version: "latest-vanilla".to_string(),
+            selected_version: "1.21.1-iris-quilt".to_string(),
             selected_server: "rpg.fenixcraft.ru".to_string(),
             custom_servers: vec![
                 old_entry("fenix-main", "Выживание • Vanilla/Mods"),
@@ -431,10 +509,10 @@ mod tests {
         }
         .normalized();
 
-        assert_eq!(config.selected_version, "26.3-vanilla");
+        assert_eq!(config.selected_version, "latest-vanilla");
         assert_eq!(config.selected_server, "play.fenixcraft.ru");
         assert_eq!(config.custom_servers.len(), 2);
-        assert_eq!(config.custom_servers[0].desc, "Vanilla • 26.3");
+        assert_eq!(config.custom_servers[0].desc, "NeoForge • 26.2");
         assert_eq!(config.custom_servers[1], mine);
     }
 
@@ -447,6 +525,42 @@ mod tests {
         .normalized();
 
         assert_eq!(config.selected_version, "26.2-iris-neoforge");
+    }
+
+    #[test]
+    fn any_release_with_a_known_loader_is_accepted() {
+        for id in [
+            "1.20.1-vanilla",
+            "1.20.1-iris",
+            "1.20.4-iris-neoforge",
+            "1.12.2-forge",
+            "26.3-vanilla",
+        ] {
+            assert!(is_known_profile(id), "{id}");
+        }
+        for id in [
+            "1.20.1",
+            "x.y-vanilla",
+            "1.20.1-quilt",
+            "1..2-vanilla",
+            "../1.2-vanilla",
+            "-vanilla",
+        ] {
+            assert!(!is_known_profile(id), "{id}");
+        }
+    }
+
+    #[test]
+    fn custom_arguments_are_enabled_by_default_and_saved() {
+        let config = LauncherConfig::default();
+        assert!(config.custom_args_enabled);
+        assert_eq!(config.game_args, "");
+
+        let saved: LauncherConfig =
+            serde_json::from_str(r#"{"customArgsEnabled":false,"gameArgs":"--fullscreen"}"#)
+                .unwrap();
+        assert!(!saved.custom_args_enabled);
+        assert_eq!(saved.game_args, "--fullscreen");
     }
 
     #[test]

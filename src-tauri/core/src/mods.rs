@@ -5,7 +5,7 @@ use crate::safety::safe_join;
 use serde_json::Value;
 use std::path::Path;
 
-fn has_mod(mods_dir: &Path, slug: &str) -> bool {
+pub(crate) fn has_mod(mods_dir: &Path, slug: &str) -> bool {
     std::fs::read_dir(mods_dir)
         .into_iter()
         .flatten()
@@ -34,7 +34,7 @@ fn pick_mod_file(mods_dir: &Path, versions: &Value) -> Option<DownloadItem> {
     })
 }
 
-async fn install_mod(
+pub(crate) async fn install_mod(
     ctx: &LaunchContext,
     mods_dir: &Path,
     slug: &str,

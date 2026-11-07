@@ -1,11 +1,18 @@
 import { appendConsole, bindConsole } from './console.js';
-import { byId, hideError, invoke, openUrl, showError, tauriCore, tauriDialog, tauriEvent } from './core.js';
+import { byId, fitPreview, hideError, invoke, openUrl, showError, tauriCore, tauriDialog, tauriEvent } from './core.js';
 import { BUILD_IDS, BUILDS, buildById, buildCaption, buildChips } from './builds.js';
-import { pulseFrom, startSculk } from './sculk.js';
+import { startEmbers } from './embers.js';
+import { isLiveWallpaperOn, startWallpaper } from './wallpaper.js';
+import { bindVersionPicker } from './versions.js';
+import { DEFAULT_JVM_ARGS, readShowModified, renderCustomArgs, writeShowModified } from './launch-options.js';
 import { LOCAL_NEWS_IMAGES, homeCards, newsArticlesHtml, releasesHtml, twitchHtml } from './news.js';
 import { SERVER_DEFAULTS, autoJoinState, serversHtml } from './servers.js';
 import { SHOP_URL, shopGridHtml } from './shop.js';
 import { DEFAULT_SKIN, createSkinStage, readSkinFile } from './skin.js';
+import { openSkinCatalog } from './skin-catalog.js';
+import { bindHeroVideo } from './hero-video.js';
+import { CLOSE_AFTER_LAUNCH_MS, applyMotion, isCloseAfterLaunch, isMotionOff, setCloseAfterLaunch, setMotionOff } from './motion.js';
+import { bindElyAccount, isElySignedIn, renderElyBox } from './ely-account.js';
 import { checkForUpdates } from './updates.js';
 import { bindAvatar } from './avatar.js';
 import { closeGlassModal, openGlassModal, openModalKind, replaceModalBody } from './modal.js';
@@ -20,6 +27,8 @@ const RELEASES_REFRESH_MS = 30 * 60 * 1000;
 const NEWS_REFRESH_MS = 60 * 1000;
 const NEWS_FOCUS_REFRESH_MS = 20 * 1000;
 const REFRESH_INTERVAL_MS = 30000;
+/** Онлайн серверов обновляется часто: игрок видит, как заходят и выходят игроки. */
+const SERVERS_REFRESH_MS = 10000;
 const CONNECTIVITY_INTERVAL_MS = 60000;
 const SAVE_DEBOUNCE_MS = 300;
 const MAX_SKIN_BYTES = 32 * 1024;
@@ -60,16 +69,25 @@ function selectedBuild() {
   return buildById(currentConfig.selectedVersion);
 }
 
+let latestRelease = '';
+/** Ролик на баннере сборки FenixCraft (hero-video.js). */
+let heroVideo = null;
+
 function renderBuilds() {
-  const selected = selectedBuild().id;
+  const selected = selectedBuild();
+  // Своя версия из списка не совпадает ни с одной карточкой: фокус остаётся на первой.
+  const focusId = selected.custom ? BUILD_IDS[0] : selected.id;
   byId('build-strip').innerHTML = BUILDS.map((build) => {
-    const checked = build.id === selected;
+    const checked = build.id === selected.id;
+    const caption = build.id === 'latest-vanilla' && latestRelease ? `${latestRelease} · последняя` : buildCaption(build);
     return `
-      <button role="radio" aria-checked="${checked}" tabindex="${checked ? 0 : -1}" data-build="${build.id}" class="build-card">
+      <button role="radio" aria-checked="${checked}" tabindex="${build.id === focusId ? 0 : -1}" data-build="${build.id}" class="build-card">
         <span class="build-name">${escapeHtml(build.name)}</span>
-        <span class="build-meta">${build.isNew ? '<span class="build-new">Новое</span>' : ''}${escapeHtml(buildCaption(build))}</span>
+        <span class="build-meta">${escapeHtml(caption)}</span>
       </button>`;
   }).join('');
+  byId('version-picker-value').textContent = selected.custom ? selected.name : 'Выбрать из списка';
+  document.querySelector('.version-picker').classList.toggle('is-active', Boolean(selected.custom));
 }
 
 function renderHero(animate) {
@@ -77,8 +95,17 @@ function renderHero(animate) {
   const hero = document.querySelector('.hero');
   hero.dataset.loader = build.loader;
   hero.dataset.shaders = String(build.shaders);
-  byId('hero-title').textContent = build.name;
-  byId('hero-meta').innerHTML = buildChips(build).map((chip) => `<span class="hero-chip">${escapeHtml(chip)}</span>`).join('');
+  // Адрес картинки абсолютный: относительный разрешился бы от файла стилей, а не от страницы.
+  hero.style.setProperty('--hero-image', `url("${new URL(build.banner, document.baseURI).href}")`);
+  // Названия FenixCraft и FenixClient в цветах чата Minecraft: Fenix — §e, остальное — §b.
+  // Vanilla целиком жёлтая (§e).
+  const brand = build.name.match(/^Fenix(\w+)$/);
+  let title = escapeHtml(build.name);
+  if (brand) title = `<span class="mc-yellow">Fenix</span><span class="mc-aqua">${escapeHtml(brand[1])}</span>`;
+  else if (build.name === 'Vanilla') title = '<span class="mc-yellow">Vanilla</span>';
+  byId('hero-title').innerHTML = title;
+  heroVideo?.update(build);
+  byId('hero-meta').innerHTML = buildChips(build, latestRelease).map((chip) => `<span class="hero-chip">${escapeHtml(chip)}</span>`).join('');
   byId('hero-desc').textContent = build.desc;
   if (animate) {
     hero.classList.remove('hero-swap');
@@ -88,14 +115,12 @@ function renderHero(animate) {
 }
 
 async function selectBuild(id, { focus = false } = {}) {
-  if (!BUILD_IDS.includes(id) || id === currentConfig.selectedVersion) return;
+  if (buildById(id).id !== id || id === currentConfig.selectedVersion) return;
   currentConfig = { ...currentConfig, selectedVersion: id };
   renderBuilds();
   renderHero(true);
   renderAutoJoin();
-  const card = document.querySelector(`[data-build="${id}"]`);
-  pulseFrom(card, 0.5);
-  if (focus) card?.focus();
+  if (focus) document.querySelector(`[data-build="${id}"]`)?.focus();
   await persistConfig({ selectedVersion: id });
   if (currentConfig.selectedVersion !== id) {
     renderBuilds();
@@ -109,7 +134,7 @@ function bindBuildKeys() {
     const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[event.key];
     if (!step) return;
     event.preventDefault();
-    const index = BUILD_IDS.indexOf(selectedBuild().id);
+    const index = Math.max(0, BUILD_IDS.indexOf(selectedBuild().id));
     selectBuild(BUILD_IDS[(index + step + BUILD_IDS.length) % BUILD_IDS.length], { focus: true });
   });
 }
@@ -133,8 +158,6 @@ function renderNewsGrid() {
     const existing = grid.children[index];
     if (existing) existing.replaceWith(card);
     else grid.append(card);
-    // Свежая запись запускает импульс скалка от своей карточки.
-    if (card.classList.contains('is-fresh')) pulseFrom(card, 0.8);
   }
   homeSignatures = signatures;
 }
@@ -234,16 +257,8 @@ async function refreshServers() {
   } catch {
     // Ошибка опроса выглядит как недоступные серверы.
   }
-  const previous = lastStatuses;
   lastStatuses = statuses;
   renderServers(statuses);
-  // Датчик сервера, который включился или погас, посылает импульс по прожилкам.
-  if (!previous) return;
-  for (const server of activeServers()) {
-    if (Boolean(previous[server.id]?.online) !== Boolean(statuses[server.id]?.online)) {
-      pulseFrom(document.querySelector(`[data-server-id="${CSS.escape(server.id)}"]`), 0.7);
-    }
-  }
 }
 
 function selectedServerItem() {
@@ -262,7 +277,8 @@ function renderAutoJoin() {
   });
   const chip = byId('autojoin-chip');
   chip.setAttribute('aria-pressed', String(state.enabled));
-  byId('autojoin-sensor').classList.toggle('is-online', state.enabled && !state.warning);
+  byId('autojoin-dot').classList.toggle('is-on', state.enabled && !state.warning);
+  byId('autojoin-dot').classList.toggle('is-warn', state.enabled && Boolean(state.warning));
   byId('autojoin-text').innerHTML = state.enabled
     ? `Сразу на сервер <strong>${escapeHtml(state.serverName)}</strong>${state.warning ? ` <span class="autojoin-warning">· ${escapeHtml(state.warning)}</span>` : ''}`
     : 'Автовход выключен: игра откроет главное меню';
@@ -288,7 +304,7 @@ function bindSettings() {
   const fields = {
     ram: byId('cfg-ram'), width: byId('cfg-width'), height: byId('cfg-height'),
     java: byId('cfg-java'), args: byId('cfg-args'), console: byId('cfg-console'), debug: byId('cfg-debug'),
-    autoJoin: byId('cfg-autojoin'),
+    autoJoin: byId('cfg-autojoin'), customArgs: byId('cfg-custom-args'), gameArgs: byId('cfg-game-args'),
   };
   fields.ram.value = currentConfig.ram;
   byId('ram-label').textContent = `${currentConfig.ram} МБ`;
@@ -296,8 +312,24 @@ function bindSettings() {
   fields.height.value = currentConfig.height;
   fields.java.value = currentConfig.javaPath;
   fields.args.value = currentConfig.jvmArgs;
+  fields.gameArgs.value = currentConfig.gameArgs ?? '';
+  fields.customArgs.checked = currentConfig.customArgsEnabled !== false;
   fields.console.checked = currentConfig.showConsole;
   fields.debug.checked = currentConfig.debugMode;
+  const showArgs = () => renderCustomArgs({
+    enabled: fields.customArgs.checked, jvmArgs: fields.args.value, gameArgs: fields.gameArgs.value,
+  });
+  showArgs();
+  fields.customArgs.addEventListener('change', showArgs);
+  byId('btn-reset-args').addEventListener('click', () => {
+    fields.args.value = DEFAULT_JVM_ARGS;
+    fields.args.dispatchEvent(new Event('input'));
+  });
+  byId('cfg-show-modified').checked = readShowModified();
+  byId('cfg-show-modified').addEventListener('change', (event) => {
+    writeShowModified(event.target.checked);
+    versionPicker?.refresh();
+  });
 
   const collect = () => ({
     ram: Number.parseInt(fields.ram.value, 10) || currentConfig.ram,
@@ -305,6 +337,8 @@ function bindSettings() {
     height: Number.parseInt(fields.height.value, 10) || currentConfig.height,
     javaPath: fields.java.value.trim(),
     jvmArgs: fields.args.value.trim(),
+    gameArgs: fields.gameArgs.value.trim(),
+    customArgsEnabled: fields.customArgs.checked,
     showConsole: fields.console.checked,
     debugMode: fields.debug.checked,
     autoJoin: fields.autoJoin.checked,
@@ -382,14 +416,67 @@ function bindGameDir() {
 
 let skinStage = null;
 
+let skinCatalog = null;
+/** Скин и плащ игрока на Ely.by (data URL), пока он вошёл через Ely.by. */
+let elyTextures = null;
+
+async function loadElyTextures(force = false) {
+  if (!isEly()) return null;
+  if (!elyTextures || force) {
+    elyTextures = await invoke('get_ely_textures').catch(() => ({ skin: null, cape: null }));
+  }
+  return elyTextures;
+}
+
+/** Адрес текстуры из каталога сервера скинов: из загруженного списка или по адресу бекенда. */
+function catalogTexture(kind, id) {
+  if (!id) return '';
+  return skinCatalog?.[kind]?.find((item) => item.id === id)?.url ?? '';
+}
+
+/** Картинки каталога приходят из лаунчера как data URL, поэтому без каталога выбранный скин не показать. */
+async function ensureSkinCatalog() {
+  if (skinCatalog || !(currentConfig.skinChoice || currentConfig.capeChoice)) return;
+  skinCatalog = await invoke('get_skin_catalog').catch(() => null);
+}
+
 async function applySkin() {
+  await ensureSkinCatalog();
   byId('btn-skin-reset').classList.toggle('hidden', !currentConfig.skinData);
   if (!skinStage) return;
+  // Свой PNG виден только в лаунчере, поэтому он важнее скина, выбранного на сервере.
+  // Без выбора на сервере игра покажет скин с Ely.by, и лаунчер показывает его же.
+  const ely = currentConfig.skinChoice || currentConfig.capeChoice ? null : await loadElyTextures();
+  const skin = currentConfig.skinData || catalogTexture('skins', currentConfig.skinChoice) || ely?.skin || DEFAULT_SKIN;
   try {
-    await skinStage.setSkin(currentConfig.skinData || DEFAULT_SKIN);
+    await skinStage.setSkin(skin);
   } catch {
     await skinStage.setSkin(DEFAULT_SKIN).catch(() => {});
   }
+  const cape = catalogTexture('capes', currentConfig.capeChoice) || ely?.cape || null;
+  await skinStage.setCape(cape).catch(() => {});
+}
+
+function openSkinPicker() {
+  openSkinCatalog({
+    load: async () => {
+      skinCatalog = await invoke('get_skin_catalog');
+      return skinCatalog;
+    },
+    current: { skin: currentConfig.skinChoice || '', cape: currentConfig.capeChoice || '' },
+    ely: {
+      signedIn: isEly(),
+      load: async (force) => ({ ...(await loadElyTextures(force)), username: currentConfig.elyUsername }),
+    },
+    apply: async ({ skin, cape }) => {
+      await flushSave();
+      await pendingSave;
+      currentConfig = await invoke('select_skin', { skin: skin || null, cape: cape || null });
+      // Выбранный скин сервера заменяет свой PNG и в лаунчере, чтобы игрок видел то же, что в игре.
+      if (currentConfig.skinData) await persistConfig({ skinData: '' });
+      await applySkin();
+    },
+  });
 }
 
 function bindSkin() {
@@ -406,6 +493,7 @@ function bindSkin() {
 
   const input = byId('skin-file-input');
   byId('btn-skin-change').addEventListener('click', () => input.click());
+  byId('btn-skin-pick').addEventListener('click', openSkinPicker);
   input.addEventListener('change', async () => {
     const file = input.files?.[0];
     input.value = '';
@@ -431,31 +519,26 @@ function bindSkin() {
 // --- Профиль ---
 
 let accountTab = 'offline';
-let microsoftAvailable = false;
 let nickTimer = null;
 
 const NICK_RULES_MESSAGE = 'Ник: 3–16 латинских букв, цифр или _';
 
-function isLicensed() {
-  return currentConfig.accountType === 'microsoft';
+function isEly() {
+  return isElySignedIn(currentConfig);
 }
 
 function displayName() {
-  return isLicensed() ? currentConfig.msUsername : currentConfig.username;
+  return isEly() ? currentConfig.elyUsername : currentConfig.username;
 }
 
 function renderProfile() {
   document.querySelectorAll('[data-account-tab]').forEach((tab) => {
     tab.setAttribute('aria-pressed', String(tab.dataset.accountTab === accountTab));
   });
-  const signedIn = Boolean(currentConfig.msUuid);
   byId('sidebar-offline-box').classList.toggle('hidden', accountTab !== 'offline');
-  byId('sidebar-license-box').classList.toggle('hidden', accountTab !== 'microsoft');
-  byId('btn-ms-login').classList.toggle('hidden', signedIn);
-  byId('btn-ms-logout').classList.toggle('hidden', !signedIn);
-  byId('btn-ms-login').disabled = !microsoftAvailable;
-  byId('btn-ms-login').textContent = microsoftAvailable ? 'Войти через Microsoft' : 'Вход пока не настроен';
-  byId('sidebar-account-type').textContent = isLicensed() ? 'Лицензия' : 'Пиратка';
+  byId('sidebar-ely-box').classList.toggle('hidden', accountTab !== 'ely');
+  renderElyBox(currentConfig);
+  byId('sidebar-account-type').textContent = isEly() ? 'Ely.by' : 'Пиратка';
   byId('sidebar-username').textContent = displayName() || 'Новый игрок';
   const nickInput = byId('sidebar-nick-input');
   if (document.activeElement !== nickInput) nickInput.value = currentConfig.username || '';
@@ -467,7 +550,7 @@ function flashAuthMessage(text) {
   message.textContent = text;
   setTimeout(() => {
     if (message.textContent === text) message.textContent = '';
-  }, 3000);
+  }, 4000);
 }
 
 function bindProfile() {
@@ -492,39 +575,16 @@ function bindProfile() {
     }, SAVE_DEBOUNCE_MS);
   });
 
-  byId('btn-ms-login').addEventListener('click', startMicrosoftLogin);
-  byId('btn-ms-logout').addEventListener('click', async () => {
-    try {
-      currentConfig = await invoke('ms_logout');
-      accountTab = 'offline';
+  bindElyAccount({
+    invoke,
+    notify: flashAuthMessage,
+    onChange: async (config) => {
+      currentConfig = config;
+      accountTab = isEly() ? 'ely' : accountTab;
+      elyTextures = null;
       refreshProfileViews();
-    } catch (error) {
-      showError(error);
-    }
-  });
-  byId('btn-ms-cancel').addEventListener('click', () => {
-    invoke('ms_login_cancel');
-    byId('ms-login-modal').classList.add('hidden');
-  });
-  byId('btn-ms-copy').addEventListener('click', async () => {
-    try {
-      await navigator.clipboard.writeText(byId('ms-login-code').textContent);
-      flashAuthMessage('Код скопирован');
-    } catch {
-      flashAuthMessage('Не удалось скопировать, выделите код вручную');
-    }
-  });
-  byId('btn-ms-open').addEventListener('click', () => openUrl(microsoftLoginUrl));
-  tauriEvent?.listen('ms:login-done', ({ payload }) => {
-    currentConfig = payload;
-    accountTab = 'microsoft';
-    byId('ms-login-modal').classList.add('hidden');
-    refreshProfileViews();
-    flashAuthMessage(`Вход выполнен: ${payload.msUsername}`);
-  });
-  tauriEvent?.listen('ms:login-failed', ({ payload }) => {
-    byId('ms-login-modal').classList.add('hidden');
-    showError(payload);
+      await applySkin();
+    },
   });
 }
 
@@ -533,33 +593,17 @@ function refreshProfileViews() {
   byId('shop-grid').innerHTML = shopGridHtml(displayName());
 }
 
+/** Вкладка «Пиратка» переключает игру на ник, вкладка «Ely.by» — на вход Ely.by, если он уже выполнен. */
 async function selectAccountTab(tab) {
   accountTab = tab;
   byId('sidebar-auth-msg').textContent = '';
-  if (tab === 'offline' && isLicensed()) {
+  if (tab === 'offline' && isEly()) {
     await persistConfig({ accountType: 'offline' });
-  } else if (tab === 'microsoft' && currentConfig.msUuid && !isLicensed()) {
-    await persistConfig({ accountType: 'microsoft' });
+  } else if (tab === 'ely' && currentConfig.elyUuid && !isEly()) {
+    await persistConfig({ accountType: 'ely' });
   }
   refreshProfileViews();
-}
-
-let microsoftLoginUrl = '';
-
-async function startMicrosoftLogin() {
-  const button = byId('btn-ms-login');
-  button.disabled = true;
-  try {
-    const login = await invoke('ms_login_start');
-    microsoftLoginUrl = login.verificationUri;
-    byId('ms-login-code').textContent = login.userCode;
-    byId('ms-login-modal').classList.remove('hidden');
-    byId('btn-ms-open').focus();
-  } catch (error) {
-    showError(error);
-  } finally {
-    button.disabled = false;
-  }
+  await applySkin();
 }
 
 // --- Запуск игры ---
@@ -577,7 +621,6 @@ function resetPlayState() {
 async function startGame() {
   await flushSave();
   await pendingSave;
-  pulseFrom(byId('btn-play'), 1.3);
   setPlayState('Подготовка…', true);
   byId('progress-status').textContent = 'Проверка файлов…';
   byId('progress-percent').textContent = '';
@@ -615,8 +658,8 @@ function bindGameEvents() {
 // --- Статус сети, Twitch и обновления ---
 
 const CONNECTIVITY_TONES = {
-  online: { dot: 'bg-[#18ff8c]', text: 'text-[#18ff8c]' },
-  degraded: { dot: 'bg-[#ffb02e]', text: 'text-[#ffb02e]' },
+  online: { dot: 'bg-emerald-400', text: 'text-emerald-400' },
+  degraded: { dot: 'bg-amber-400', text: 'text-amber-400' },
   offline: { dot: 'bg-slate-500', text: 'text-slate-400' },
 };
 
@@ -657,7 +700,7 @@ async function updateTwitchStatus() {
 // --- Общие обработчики ---
 
 function bindWindowControls() {
-  const commands = { 'btn-win-min': 'window_minimize', 'btn-win-max': 'window_maximize', 'btn-win-close': 'window_close' };
+  const commands = { 'btn-win-min': 'window_minimize', 'btn-win-close': 'window_close' };
   for (const [id, command] of Object.entries(commands)) {
     byId(id).addEventListener('click', () => invoke(command));
   }
@@ -752,13 +795,81 @@ function bindDelegatedActions() {
   });
 }
 
+// --- Любая версия ---
+
+let versionPicker = null;
+
+async function loadReleases() {
+  const list = await invoke('list_minecraft_releases');
+  if (list?.latest && list.latest !== latestRelease) {
+    latestRelease = list.latest;
+    renderBuilds();
+    renderHero(false);
+  }
+  return { releases: list?.releases ?? [], offline: Boolean(list?.offline) };
+}
+
+function bindVersions() {
+  versionPicker = bindVersionPicker({
+    loadReleases,
+    showModified: readShowModified,
+    selectedId: () => currentConfig.selectedVersion,
+    onSelect: (id) => selectBuild(id),
+  });
+  // Номер последней версии нужен на карточке Vanilla сразу, без открытия списка.
+  loadReleases().catch(() => {});
+}
+
+// --- Производительность ---
+
+let closeTimer = null;
+
+/** «Выключить все анимации» и «Закрыть лаунчер после запуска игры». */
+function bindPerformance({ wallpaper, embers }) {
+  const motionBox = byId('cfg-no-motion');
+  const closeBox = byId('cfg-close-after-launch');
+  const apply = () => {
+    applyMotion(motionBox.checked, { wallpaper, heroVideo, embers, skinStage });
+    byId('cfg-live-bg').disabled = motionBox.checked;
+  };
+  motionBox.checked = isMotionOff();
+  motionBox.addEventListener('change', () => {
+    setMotionOff(motionBox.checked);
+    apply();
+  });
+  apply();
+
+  closeBox.checked = isCloseAfterLaunch();
+  closeBox.addEventListener('change', () => {
+    setCloseAfterLaunch(closeBox.checked);
+    if (!closeBox.checked) clearTimeout(closeTimer);
+  });
+  // Игра работает отдельным процессом, поэтому закрытие лаунчера её не останавливает.
+  tauriEvent?.listen('game:running', () => {
+    if (!isCloseAfterLaunch()) return;
+    byId('btn-play-text').textContent = 'Игра запущена · лаунчер закроется';
+    closeTimer = setTimeout(() => {
+      // Галочку могли снять, пока шли 5 секунд.
+      if (isCloseAfterLaunch()) invoke('window_close');
+    }, CLOSE_AFTER_LAUNCH_MS);
+  });
+  // Если игра сразу вылетела или закрылась, лаунчер остаётся, чтобы показать причину.
+  const cancelClose = () => clearTimeout(closeTimer);
+  tauriEvent?.listen('game:error', cancelClose);
+  tauriEvent?.listen('game:closed', cancelClose);
+}
+
 async function showLauncherVersion() {
   const version = await invoke('get_launcher_version');
   byId('app-version-badge').textContent = `v${version}`;
 }
 
 async function start() {
-  startSculk(byId('bg-sculk'));
+  fitPreview();
+  const wallpaper = startWallpaper(byId('bg-wallpaper'));
+  byId('cfg-live-bg').checked = isLiveWallpaperOn();
+  byId('cfg-live-bg').addEventListener('change', (event) => wallpaper.setLive(event.target.checked));
+  const embers = startEmbers(byId('bg-embers'));
   bindWindowControls();
   bindDelegatedActions();
   bindConsole();
@@ -766,13 +877,16 @@ async function start() {
   bindBuildKeys();
 
   currentConfig = await invoke('get_config');
-  accountTab = isLicensed() ? 'microsoft' : 'offline';
-  microsoftAvailable = Boolean(await invoke('ms_login_available'));
+  accountTab = isEly() ? 'ely' : 'offline';
   renderBuilds();
   renderHero(false);
   bindSettings();
+  heroVideo = bindHeroVideo({ hero: document.querySelector('.hero'), video: byId('hero-video'), chip: byId('hero-anim-chip'), dot: byId('hero-anim-dot') });
+  heroVideo.update(selectedBuild());
+  bindVersions();
   bindProfile();
   bindSkin();
+  bindPerformance({ wallpaper, embers });
   refreshProfileViews();
   renderServers({});
   showCachedNews();
@@ -785,7 +899,7 @@ async function start() {
   refreshConnectivity();
   updateTwitchStatus();
   checkForUpdates();
-  setInterval(refreshServers, REFRESH_INTERVAL_MS);
+  setInterval(refreshServers, SERVERS_REFRESH_MS);
   setInterval(updateTwitchStatus, REFRESH_INTERVAL_MS);
   setInterval(refreshConnectivity, CONNECTIVITY_INTERVAL_MS);
   setInterval(refreshNews, NEWS_REFRESH_MS);

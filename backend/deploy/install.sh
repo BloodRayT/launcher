@@ -54,6 +54,9 @@ install_backend() {
     done
   done
 
+  # Скины и плащи для окна «Выбрать скин» и выбор игроков.
+  mkdir -p catalog/skins catalog/capes data
+
   log "Запуск контейнера"
   docker compose up -d --build
   for _ in $(seq 1 30); do
@@ -132,6 +135,10 @@ main() {
   for profile in "${PROFILES[@]}"; do
     printf '  %s/backend/storage/%s/mods\n' "${INSTALL_DIR}" "${profile}"
   done
+  printf '\nСкины и плащи (PNG) для окна «Выбрать скин»:\n  %s/backend/catalog/skins\n  %s/backend/catalog/capes\n' \
+    "${INSTALL_DIR}" "${INSTALL_DIR}"
+  printf 'Мод CustomSkinLoader для сборки FenixCraft положите в %s/backend/storage/26.2-iris-neoforge/mods\n' \
+    "${INSTALL_DIR}"
 }
 
 main "$@"

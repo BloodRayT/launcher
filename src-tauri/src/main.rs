@@ -2,6 +2,7 @@
 
 mod accounts;
 mod feeds;
+mod skins;
 
 use fenix_core::assets::{verify_assets, AssetAudit};
 use fenix_core::config::{
@@ -9,6 +10,7 @@ use fenix_core::config::{
     LauncherConfig,
 };
 use fenix_core::download::{download_client, probe_client};
+use fenix_core::ely::{ensure_authlib_injector, javaagent_arg};
 use fenix_core::errors::{LauncherError, UserError};
 use fenix_core::instances::instance_dir;
 use fenix_core::launch::{prepare_launch_as, run_game, LaunchContext};
@@ -16,7 +18,9 @@ use fenix_core::network::{check_connectivity, Connectivity};
 use fenix_core::reporter::{GameEvent, Reporter};
 use fenix_core::safety::{is_trusted_update_url, parse_external_url};
 use fenix_core::updater::{check_update, download_installer, UpdateInfo, RELEASES_PAGE};
+use fenix_core::versions::{fetch_manifest, latest_release, manifest_cache, release_ids};
 use fenix_core::Endpoints;
+use serde::Serialize;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{AppHandle, Emitter, Window};
@@ -111,15 +115,6 @@ fn window_minimize(window: Window) {
 }
 
 #[tauri::command]
-fn window_maximize(window: Window) {
-    if window.is_maximized().unwrap_or(false) {
-        let _ = window.unmaximize();
-    } else {
-        let _ = window.maximize();
-    }
-}
-
-#[tauri::command]
 fn window_set_fullscreen(window: Window, fullscreen: bool) {
     let _ = window.set_fullscreen(fullscreen);
 }
@@ -152,6 +147,37 @@ async fn get_connectivity() -> Connectivity {
         &backend_url,
     )
     .await
+}
+
+/// Релизы Minecraft для списка «Любая версия».
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ReleaseList {
+    releases: Vec<String>,
+    latest: String,
+    offline: bool,
+}
+
+/// Без интернета отдаётся сохранённый список: скачанные версии запускаются и офлайн.
+#[tauri::command]
+async fn list_minecraft_releases() -> ReleaseList {
+    let cache = manifest_cache(&files_root(&current_config()));
+    let fetched = match probe_client() {
+        Ok(client) => fetch_manifest(&client, &Endpoints::default().version_manifest, &cache).await,
+        Err(_) => None,
+    };
+    match fetched {
+        Some((manifest, cached)) => ReleaseList {
+            releases: release_ids(&manifest),
+            latest: latest_release(&manifest).unwrap_or_default().to_string(),
+            offline: cached,
+        },
+        None => ReleaseList {
+            releases: Vec::new(),
+            latest: String::new(),
+            offline: true,
+        },
+    }
 }
 
 #[tauri::command]
@@ -244,7 +270,12 @@ async fn prepare_and_run(reporter: Reporter) -> Result<(), LauncherError> {
         LAUNCHER_VERSION,
         reporter.clone(),
     )?;
-    let identity = accounts::resolve_identity(&config, &reporter).await?;
+    let mut identity = accounts::resolve_identity(&config, &reporter).await?;
+    // Подтверждённая сессия Ely.by работает в игре через authlib-injector.
+    if config.account_type == "ely" && identity.licensed {
+        let injector = ensure_authlib_injector(&ctx).await?;
+        identity.java_agent = Some(javaagent_arg(&injector));
+    }
     let plan = prepare_launch_as(&ctx, &config, &identity).await?;
     tauri::async_runtime::spawn_blocking(move || run_game(&plan, &reporter))
         .await
@@ -281,12 +312,14 @@ fn main() {
             set_game_dir,
             open_game_dir,
             window_minimize,
-            window_maximize,
             window_close,
             window_set_fullscreen,
             open_external_url,
             get_connectivity,
+            list_minecraft_releases,
             feeds::get_servers_status,
+            skins::get_skin_catalog,
+            skins::select_skin,
             feeds::get_vk_news,
             feeds::check_twitch_live,
             feeds::get_launcher_releases,
@@ -295,6 +328,9 @@ fn main() {
             accounts::ms_login_start,
             accounts::ms_login_cancel,
             accounts::ms_logout,
+            accounts::ely_login,
+            accounts::ely_logout,
+            skins::get_ely_textures,
             save_debug_log,
             check_launcher_update,
             install_launcher_update,

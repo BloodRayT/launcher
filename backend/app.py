@@ -8,6 +8,7 @@ import hashlib
 from urllib.parse import quote
 
 import feeds
+import skins
 
 app = FastAPI(title="FenixCraft Launcher Backend v1.0")
 
@@ -29,6 +30,7 @@ os.makedirs(STORAGE_DIR, exist_ok=True)
 # Манифест отдаёт ссылки вида {BASE_PUBLIC_URL}/files/..., поэтому файлы доступны и по этому пути.
 app.mount("/api/launcher/files", StaticFiles(directory=STORAGE_DIR), name="launcher-files")
 app.mount("/files", StaticFiles(directory=STORAGE_DIR), name="files")
+app.include_router(skins.router)
 
 def sha256_of_file(filepath: str) -> str:
     h = hashlib.sha256()
