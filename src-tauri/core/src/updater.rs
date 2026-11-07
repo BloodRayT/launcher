@@ -66,26 +66,53 @@ pub struct UpdateInfo {
     pub latest_version: String,
     pub download_url: String,
     pub changelog: String,
+    /// SHA-256 установщика из ответа GitHub. Без неё копии на сервере FenixCraft не доверяем.
+    pub sha256: String,
 }
 
 impl UpdateInfo {
-    fn none(current: &str) -> Self {
+    pub fn none(current: &str) -> Self {
         Self {
             update_available: false,
             latest_version: current.to_string(),
             download_url: String::new(),
             changelog: String::new(),
+            sha256: String::new(),
         }
     }
 }
 
-fn find_installer(release: &Value) -> Option<String> {
-    release["assets"]
-        .as_array()?
-        .iter()
-        .filter_map(|asset| asset["browser_download_url"].as_str())
-        .find(|url| is_trusted_update_url(url))
-        .map(str::to_string)
+/// GitHub указывает у файла релиза `digest: "sha256:<hex>"`.
+fn asset_sha256(asset: &Value) -> String {
+    asset["digest"]
+        .as_str()
+        .and_then(|digest| digest.strip_prefix("sha256:"))
+        .filter(|hex| hex.len() == 64 && hex.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_default()
+}
+
+fn find_installer(release: &Value) -> Option<(String, String)> {
+    release["assets"].as_array()?.iter().find_map(|asset| {
+        let url = asset["browser_download_url"].as_str()?;
+        is_trusted_update_url(url).then(|| (url.to_string(), asset_sha256(asset)))
+    })
+}
+
+/// Копия установщика на сервере FenixCraft: сервер сам скачивает её с GitHub после каждого релиза.
+pub fn mirror_url(backend_url: &str, installer_url: &str) -> Option<String> {
+    if !is_trusted_update_url(installer_url) {
+        return None;
+    }
+    let backend = reqwest::Url::parse(backend_url).ok()?;
+    if !matches!(backend.scheme(), "http" | "https") {
+        return None;
+    }
+    let name = installer_url.rsplit('/').next()?;
+    Some(format!(
+        "{}/updates/{name}",
+        backend_url.trim_end_matches('/')
+    ))
 }
 
 /// Разбирает ответ GitHub. На Windows адрес указывает на установщик, на остальных системах — на страницу релиза.
@@ -96,16 +123,16 @@ pub fn parse_release(release: &Value, current: &str, windows: bool) -> UpdateInf
     if !is_newer_version(tag, current) {
         return UpdateInfo::none(current);
     }
-    let installer = if windows {
-        find_installer(release)
-    } else {
-        None
-    };
+    let (download_url, sha256) = windows
+        .then(|| find_installer(release))
+        .flatten()
+        .unwrap_or_else(|| (RELEASES_PAGE.to_string(), String::new()));
     UpdateInfo {
         update_available: true,
         latest_version: tag.trim_start_matches('v').to_string(),
-        download_url: installer.unwrap_or_else(|| RELEASES_PAGE.to_string()),
+        download_url,
         changelog: release["body"].as_str().unwrap_or_default().to_string(),
+        sha256,
     }
 }
 
@@ -130,23 +157,44 @@ pub async fn check_update(client: &reqwest::Client, current: &str) -> UpdateInfo
     }
 }
 
-/// Скачивает установщик. Адрес проверяется здесь, потому что он приходит из интерфейса.
+fn update_error(reason: String) -> LauncherError {
+    LauncherError::Download {
+        file: "обновление".to_string(),
+        reason,
+    }
+}
+
+/// Скачивает установщик с GitHub, а если GitHub недоступен — копию с сервера FenixCraft.
+/// Копия принимается, только если её SHA-256 совпала с указанной на GitHub.
+/// Адрес проверяется здесь, потому что он приходит из интерфейса.
 pub async fn download_installer(
     client: &reqwest::Client,
     url: &str,
+    sha256: &str,
+    mirror: Option<&str>,
     dest: &Path,
 ) -> Result<(), LauncherError> {
     if !is_trusted_update_url(url) {
-        return Err(LauncherError::Download {
-            file: "обновление".to_string(),
-            reason: "адрес не относится к релизам FenixCraft".to_string(),
-        });
+        return Err(update_error(
+            "адрес не относится к релизам FenixCraft".to_string(),
+        ));
     }
-    download_file(client, url, dest, &Expected::default())
+    let expected = Expected {
+        sha256: (!sha256.is_empty()).then(|| sha256.to_string()),
+        ..Expected::default()
+    };
+    let Err(github_error) = download_file(client, url, dest, &expected).await else {
+        return Ok(());
+    };
+    let Some(mirror) = mirror.filter(|_| expected.sha256.is_some()) else {
+        return Err(update_error(format!("{github_error:?}")));
+    };
+    download_file(client, mirror, dest, &expected)
         .await
-        .map_err(|err| LauncherError::Download {
-            file: "обновление".to_string(),
-            reason: format!("{err:?}"),
+        .map_err(|mirror_error| {
+            update_error(format!(
+                "GitHub: {github_error:?}; сервер FenixCraft: {mirror_error:?}"
+            ))
         })
 }
 
@@ -230,9 +278,48 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let dest = dir.path().join("setup.exe");
 
-        let result = download_installer(&client, "https://evil.example/x-setup.exe", &dest).await;
+        let result = download_installer(
+            &client,
+            "https://evil.example/x-setup.exe",
+            "",
+            Some("http://fenixcraft.ru/api/launcher/updates/x-setup.exe"),
+            &dest,
+        )
+        .await;
 
         assert!(matches!(result, Err(LauncherError::Download { .. })));
         assert!(!dest.exists());
+    }
+
+    #[test]
+    fn installer_checksum_comes_from_the_github_digest() {
+        let digest = "93CD3E7EDE74BF4F132EFC0531CE6689C95B00A53356E51C165D24B3F2669E37";
+        let with_digest = json!({
+            "tag_name": "v1.2.0",
+            "assets": [{ "browser_download_url": INSTALLER, "digest": format!("sha256:{digest}") }]
+        });
+
+        let info = parse_release(&with_digest, "1.1.0", true);
+
+        assert_eq!(info.sha256, digest.to_ascii_lowercase());
+        assert_eq!(parse_release(&release("v1.2.0"), "1.1.0", true).sha256, "");
+        let bad = json!({ "browser_download_url": INSTALLER, "digest": "sha256:zz" });
+        assert_eq!(asset_sha256(&bad), "");
+    }
+
+    #[test]
+    fn mirror_keeps_the_installer_name_on_the_fenixcraft_server() {
+        assert_eq!(
+            mirror_url("http://fenixcraft.ru/api/launcher/", INSTALLER).as_deref(),
+            Some("http://fenixcraft.ru/api/launcher/updates/FenixCraft_1.2.0_x64-setup.exe")
+        );
+        assert_eq!(
+            mirror_url(
+                "http://fenixcraft.ru/api/launcher",
+                "https://evil.example/x-setup.exe"
+            ),
+            None
+        );
+        assert_eq!(mirror_url("file:///C:/x", INSTALLER), None);
     }
 }
