@@ -13,7 +13,9 @@ use crate::mods::ensure_shader_mods;
 use crate::neoforge::{find_installed_loader, install_loader, ModLoader};
 use crate::reporter::Reporter;
 use crate::safety::is_valid_username;
-use crate::skin_loader::{ensure_skin_mod, write_loader_config};
+use crate::skin_loader::{
+    ensure_skin_mod, version_marker_jar, write_loader_config, IGNORE_PATCH_FAILURE_FLAG,
+};
 use crate::versions::{base_version, load_version_json};
 use crate::Endpoints;
 use serde_json::Value;
@@ -697,7 +699,15 @@ async fn plan_forge_family(
 
     // Ванильный клиент исключается: NeoForge использует свой пропатченный,
     // а два клиента на classpath дают конфликт модулей при старте.
-    vanilla.classpath.pop();
+    // Вместо него остаётся его version.json: по нему моды узнают версию игры.
+    if let Some(client_jar) = vanilla.classpath.pop() {
+        match version_marker_jar(&client_jar) {
+            Ok(marker) => vanilla.classpath.push(marker),
+            Err(err) => ctx
+                .reporter
+                .log(format!("[Скины] Версия игры для модов не записана: {err}")),
+        }
+    }
     let mut libraries = LibrarySet::seeded(&vanilla.classpath);
     let libs_dir = ctx.root.join("libraries");
     libraries.collect(&neo_json, &libs_dir, current_os());
@@ -749,6 +759,7 @@ async fn plan_forge_family(
     );
     // Ely.by: authlib-injector подключается до основного класса игры.
     args.extend(identity.java_agent.iter().cloned());
+    args.push(IGNORE_PATCH_FAILURE_FLAG.to_string());
     args.extend(custom_jvm_args(config));
     args.push(
         neo_json["mainClass"]
