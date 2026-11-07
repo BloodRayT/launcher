@@ -10,6 +10,51 @@ const MOD_SLUG: &str = "customskinloader";
 /// Версия формата конфига; мод обновит его сам, сохранив список источников.
 const CONFIG_VERSION: &str = "15.1";
 
+/// Если будущая версия игры сломает один из патчей мода, игра запустится без скинов, а не вылетит.
+pub const IGNORE_PATCH_FAILURE_FLAG: &str = "-Dcustomskinloader.ignorePatchFailure=true";
+const VERSION_FILE: &str = "version.json";
+
+/// Маленький jar с одним `version.json` из ванильного клиента.
+///
+/// CustomSkinLoader узнаёт версию игры по `version.json` на системном classpath. Ванильный
+/// клиент для NeoForge и Forge на classpath не кладётся (иначе два модуля minecraft), и без
+/// этого файла мод считает версию нулевой и ломает запуск патчами для старых версий.
+pub fn version_marker_jar(client_jar: &Path) -> Result<PathBuf, LauncherError> {
+    let stem = client_jar
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .ok_or_else(|| LauncherError::BadData("у клиента игры нет имени".to_string()))?;
+    let marker = client_jar.with_file_name(format!("{stem}-version.jar"));
+    let fresh = match (std::fs::metadata(&marker), std::fs::metadata(client_jar)) {
+        (Ok(marker_meta), Ok(client_meta)) => {
+            matches!((marker_meta.modified(), client_meta.modified()), (Ok(m), Ok(c)) if m >= c)
+        }
+        _ => false,
+    };
+    if fresh {
+        return Ok(marker);
+    }
+    let bad = |error: zip::result::ZipError| LauncherError::BadData(error.to_string());
+    let mut client = zip::ZipArchive::new(std::fs::File::open(client_jar)?).map_err(bad)?;
+    let mut version = Vec::new();
+    std::io::Read::read_to_end(
+        &mut client.by_name(VERSION_FILE).map_err(bad)?,
+        &mut version,
+    )?;
+
+    let mut jar = std::io::Cursor::new(Vec::new());
+    {
+        let mut writer = zip::ZipWriter::new(&mut jar);
+        writer
+            .start_file(VERSION_FILE, zip::write::SimpleFileOptions::default())
+            .map_err(bad)?;
+        std::io::Write::write_all(&mut writer, &version)?;
+        writer.finish().map_err(bad)?;
+    }
+    write_atomic(&marker, jar.get_ref())?;
+    Ok(marker)
+}
+
 /// Где мод ищет свой конфиг внутри папки сборки.
 pub fn config_path(game_dir: &Path) -> PathBuf {
     game_dir
@@ -122,5 +167,49 @@ mod tests {
         )
         .unwrap();
         assert!(written.contains("http://backend.test/skins/player/{USERNAME}.png"));
+    }
+
+    fn client_jar(dir: &Path) -> PathBuf {
+        let path = dir.join("26.2.jar");
+        let mut writer = zip::ZipWriter::new(std::fs::File::create(&path).unwrap());
+        let options = zip::write::SimpleFileOptions::default();
+        writer
+            .start_file("net/minecraft/Main.class", options)
+            .unwrap();
+        std::io::Write::write_all(&mut writer, b"class").unwrap();
+        writer.start_file(VERSION_FILE, options).unwrap();
+        std::io::Write::write_all(&mut writer, br#"{"id":"26.2","protocol_version":775}"#).unwrap();
+        writer.finish().unwrap();
+        path
+    }
+
+    #[test]
+    fn version_marker_holds_only_the_game_version_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let client = client_jar(dir.path());
+
+        let marker = version_marker_jar(&client).unwrap();
+
+        assert_eq!(marker, dir.path().join("26.2-version.jar"));
+        let mut jar = zip::ZipArchive::new(std::fs::File::open(&marker).unwrap()).unwrap();
+        assert_eq!(jar.len(), 1);
+        let mut text = String::new();
+        std::io::Read::read_to_string(&mut jar.by_name(VERSION_FILE).unwrap(), &mut text).unwrap();
+        assert!(text.contains("\"id\":\"26.2\""));
+        assert_eq!(version_marker_jar(&client).unwrap(), marker);
+    }
+
+    #[test]
+    fn client_without_version_file_gives_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let client = dir.path().join("old.jar");
+        let mut writer = zip::ZipWriter::new(std::fs::File::create(&client).unwrap());
+        writer
+            .start_file("a.class", zip::write::SimpleFileOptions::default())
+            .unwrap();
+        writer.finish().unwrap();
+
+        assert!(version_marker_jar(&client).is_err());
+        assert!(!dir.path().join("old-version.jar").exists());
     }
 }
