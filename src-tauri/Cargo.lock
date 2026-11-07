@@ -1180,7 +1180,7 @@ dependencies = [
 
 [[package]]
 name = "fenixcraft-launcher"
-version = "1.0.20"
+version = "1.0.21"
 dependencies = [
  "base64 0.22.1",
  "fenix-core",

@@ -56,6 +56,8 @@ install_backend() {
 
   # Скины и плащи для окна «Выбрать скин» и выбор игроков.
   mkdir -p catalog/skins catalog/capes data
+  # Копия установщика лаунчера, сервер обновляет её сам.
+  mkdir -p updates
 
   log "Запуск контейнера"
   docker compose up -d --build

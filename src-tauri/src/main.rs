@@ -17,12 +17,15 @@ use fenix_core::launch::{prepare_launch_as, run_game, LaunchContext};
 use fenix_core::network::{check_connectivity, Connectivity};
 use fenix_core::reporter::{GameEvent, Reporter};
 use fenix_core::safety::{is_trusted_update_url, parse_external_url};
-use fenix_core::updater::{check_update, download_installer, UpdateInfo, RELEASES_PAGE};
+use fenix_core::updater::{
+    check_update, download_installer, mirror_url, UpdateInfo, RELEASES_PAGE,
+};
 use fenix_core::versions::{fetch_manifest, latest_release, manifest_cache, release_ids};
 use fenix_core::Endpoints;
 use serde::Serialize;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Window};
 use tauri_plugin_opener::OpenerExt;
 
@@ -31,6 +34,8 @@ const INSTALLER_FILE: &str = "FenixCraft_Update_Setup.exe";
 const CONSOLE_REPORT_TAIL_LINES: usize = 150;
 
 static GAME_RUNNING: AtomicBool = AtomicBool::new(false);
+/// Последнее найденное обновление: контрольная сумма установщика берётся отсюда, а не из интерфейса.
+static LAST_UPDATE: Mutex<Option<UpdateInfo>> = Mutex::new(None);
 
 fn current_config() -> LauncherConfig {
     load_config(&config_path(&game_dir()))
@@ -228,15 +233,25 @@ fn save_debug_log(
 
 #[tauri::command]
 async fn check_launcher_update() -> UpdateInfo {
-    match probe_client() {
+    let info = match probe_client() {
         Ok(client) => check_update(&client, LAUNCHER_VERSION).await,
-        Err(_) => UpdateInfo {
-            update_available: false,
-            latest_version: LAUNCHER_VERSION.to_string(),
-            download_url: String::new(),
-            changelog: String::new(),
-        },
+        Err(_) => UpdateInfo::none(LAUNCHER_VERSION),
+    };
+    if let Ok(mut last) = LAST_UPDATE.lock() {
+        *last = Some(info.clone());
     }
+    info
+}
+
+/// SHA-256 установщика, если интерфейс просит скачать именно найденное обновление.
+fn known_installer_sha256(download_url: &str) -> String {
+    LAST_UPDATE
+        .lock()
+        .ok()
+        .and_then(|last| last.clone())
+        .filter(|info| info.download_url == download_url)
+        .map(|info| info.sha256)
+        .unwrap_or_default()
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -249,9 +264,17 @@ async fn install_launcher_update(app: AppHandle, download_url: String) -> Result
     }
     let installer = game_dir().join(INSTALLER_FILE);
     let client = download_client().map_err(|err| err.to_string())?;
-    download_installer(&client, &download_url, &installer)
-        .await
-        .map_err(|err| err.to_string())?;
+    let sha256 = known_installer_sha256(&download_url);
+    let mirror = mirror_url(&current_config().backend_url, &download_url);
+    download_installer(
+        &client,
+        &download_url,
+        &sha256,
+        mirror.as_deref(),
+        &installer,
+    )
+    .await
+    .map_err(|err| err.to_string())?;
     std::process::Command::new(&installer)
         .spawn()
         .map_err(|err| format!("Не удалось запустить установщик: {err}"))?;
