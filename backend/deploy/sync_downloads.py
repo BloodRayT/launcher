@@ -23,7 +23,7 @@ LATEST_RELEASE_API = "https://api.github.com/repos/BloodRayT/launcher/releases/l
 DOWNLOAD_PREFIX = "https://github.com/BloodRayT/launcher/releases/download/"
 DEFAULT_DIR = "/var/www/html/download"
 CRON_FILE = "/etc/cron.d/fenixcraft-downloads"
-CRON_SCHEDULE = "*/10 * * * *"
+CRON_SCHEDULE = "0 * * * *"
 USER_AGENT = "FenixCraftSite"
 TIMEOUT_SECONDS = 120
 CHUNK_BYTES = 1024 * 1024
@@ -157,13 +157,13 @@ def install_cron(directory: str) -> None:
         f.write("# Зеркало сборок лаунчера FenixCraft на сайте, обновляется с GitHub.\n")
         f.write(line)
     os.chmod(CRON_FILE, 0o644)
-    log(f"Автообновление включено: {CRON_FILE} (каждые 10 минут)")
+    log(f"Автообновление включено: {CRON_FILE} (каждый час)")
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--dir", default=DEFAULT_DIR, help="папка download на сайте")
-    parser.add_argument("--install-cron", action="store_true", help="проверять релизы каждые 10 минут")
+    parser.add_argument("--install-cron", action="store_true", help="проверять релизы каждый час")
     args = parser.parse_args()
     directory = os.path.abspath(args.dir)
     if args.install_cron:

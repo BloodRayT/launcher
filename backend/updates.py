@@ -25,7 +25,7 @@ DOWNLOAD_PREFIX = "https://github.com/BloodRayT/launcher/releases/download/"
 INSTALLER_NAME = re.compile(r"^FenixCraft_(\d+)\.(\d+)\.(\d+)_x64-setup\.exe$")
 SHA256_DIGEST = re.compile(r"^sha256:([0-9a-fA-F]{64})$")
 MAX_INSTALLER_BYTES = 300 * 1024 * 1024
-SYNC_INTERVAL_SECONDS = 10 * 60
+SYNC_INTERVAL_SECONDS = 60 * 60
 # Предыдущая версия остаётся, пока её докачивают игроки, начавшие обновление раньше.
 KEEP_INSTALLERS = 2
 CHUNK_BYTES = 1024 * 1024
