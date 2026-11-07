@@ -66,17 +66,79 @@ pub async fn get_ely_textures() -> Result<ElyTextures, String> {
         return Err("Войдите через Ely.by в блоке профиля, чтобы видеть скин с сайта.".to_string());
     }
     let client = probe_client().map_err(|error| error.to_string())?;
-    let skin_url = format!("{ELY_SKINSYSTEM}/skins/{username}.png");
-    let cape_url = format!("{ELY_SKINSYSTEM}/cloaks/{username}.png");
-    let (skin, cape) = tokio::join!(
-        texture_data_url(&client, &skin_url),
-        texture_data_url(&client, &cape_url),
-    );
+    // Адреса /skins/{ник}.png у Ely.by отвечают устаревшим перенаправлением и отстают от профиля,
+    // поэтому текстуры берутся из /textures/{ник} — тех же данных, что видит игра.
+    let response = client
+        .get(format!("{ELY_SKINSYSTEM}/textures/{username}"))
+        .send()
+        .await
+        .map_err(|_| "Ely.by недоступен. Проверьте интернет и попробуйте позже.".to_string())?;
+    let textures: Value = match response.status().as_u16() {
+        200 => response.json().await.unwrap_or(Value::Null),
+        // 204: у аккаунта нет ни скина, ни плаща.
+        _ => Value::Null,
+    };
+    let (skin_url, cape_url) = ely_texture_urls(&textures);
+    let fetch = |url: Option<String>| {
+        let client = client.clone();
+        async move {
+            match url {
+                Some(url) => texture_data_url(&client, &url).await,
+                None => None,
+            }
+        }
+    };
+    let (skin, cape) = tokio::join!(fetch(skin_url), fetch(cape_url));
     Ok(ElyTextures {
         username,
         skin,
         cape,
     })
+}
+
+/// Адреса скина и плаща из ответа `/textures/{ник}`. Принимаются только файлы самого Ely.by.
+fn ely_texture_urls(textures: &Value) -> (Option<String>, Option<String>) {
+    let url_of = |key: &str| {
+        let url = textures[key]["url"].as_str()?;
+        let parsed = reqwest::Url::parse(url).ok()?;
+        let host = parsed.host_str()?;
+        let from_ely = host == "ely.by" || host.ends_with(".ely.by");
+        (from_ely && matches!(parsed.scheme(), "http" | "https")).then(|| url.to_string())
+    };
+    (url_of("SKIN"), url_of("CAPE"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ely_textures_come_from_the_profile_data() {
+        let textures = json!({
+            "SKIN": { "url": "http://ely.by/storage/skins/037f47a8.png", "metadata": { "model": "slim" } },
+            "CAPE": { "url": "http://ely.by/storage/cloaks/abc.png" }
+        });
+
+        assert_eq!(
+            ely_texture_urls(&textures),
+            (
+                Some("http://ely.by/storage/skins/037f47a8.png".to_string()),
+                Some("http://ely.by/storage/cloaks/abc.png".to_string())
+            )
+        );
+    }
+
+    #[test]
+    fn missing_or_foreign_textures_are_ignored() {
+        assert_eq!(ely_texture_urls(&Value::Null), (None, None));
+        let foreign = json!({ "SKIN": { "url": "http://evil.example/ely.by.png" } });
+        assert_eq!(ely_texture_urls(&foreign), (None, None));
+        let only_skin = json!({ "SKIN": { "url": "https://ely.by/storage/skins/a.png" } });
+        assert_eq!(
+            ely_texture_urls(&only_skin),
+            (Some("https://ely.by/storage/skins/a.png".to_string()), None)
+        );
+    }
 }
 
 #[tauri::command]
