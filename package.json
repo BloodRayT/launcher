@@ -1,7 +1,7 @@
 {
   "name": "fenixcraft-launcher-ui",
   "private": true,
-  "version": "1.0.23",
+  "version": "1.0.24",
   "type": "module",
   "scripts": {
     "build:css": "tailwindcss -c tailwind.config.cjs -i src/styles/input.css -o src/styles/tailwind.css --minify",
