@@ -16,7 +16,7 @@ use fenix_core::instances::instance_dir;
 use fenix_core::launch::{prepare_launch_as, run_game, LaunchContext};
 use fenix_core::network::{check_connectivity, Connectivity};
 use fenix_core::reporter::{GameEvent, Reporter};
-use fenix_core::safety::{is_trusted_update_url, parse_external_url};
+use fenix_core::safety::{is_log_file, is_trusted_update_url, parse_external_url};
 use fenix_core::updater::{
     check_update, download_installer, mirror_url, UpdateInfo, RELEASES_PAGE,
 };
@@ -216,6 +216,9 @@ fn save_debug_log(
         .filter(|path| !path.trim().is_empty())
         .map(PathBuf::from)
         .unwrap_or_else(|| logs_dir.join("fenixcraft-report.log"));
+    if !is_log_file(&target) {
+        return Err("Журнал можно сохранить только в файл .log или .txt.".to_string());
+    }
 
     let mut report =
         format!("===== FENIXCRAFT LAUNCHER v{LAUNCHER_VERSION} =====\n{console_text}\n");

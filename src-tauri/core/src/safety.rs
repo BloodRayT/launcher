@@ -73,6 +73,15 @@ pub fn is_trusted_update_url(raw: &str) -> bool {
         && url.path().ends_with("-setup.exe")
 }
 
+/// Журнал пишется только в файл `.log` или `.txt`: команда получает путь из интерфейса.
+pub fn is_log_file(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| {
+            extension.eq_ignore_ascii_case("log") || extension.eq_ignore_ascii_case("txt")
+        })
+}
+
 fn parse_version(version: &str) -> Option<(u64, u64, u64)> {
     let mut parts = version.trim().trim_start_matches('v').split('.');
     let major = parts.next()?.parse().ok()?;
@@ -92,6 +101,15 @@ pub fn is_newer_version(candidate: &str, current: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn debug_log_can_only_be_a_log_or_text_file() {
+        assert!(is_log_file(Path::new("C:/Users/me/fenixcraft-debug.log")));
+        assert!(is_log_file(Path::new("report.TXT")));
+        assert!(!is_log_file(Path::new("C:/Users/me/run.bat")));
+        assert!(!is_log_file(Path::new("launcher_config.json")));
+        assert!(!is_log_file(Path::new("no-extension")));
+    }
 
     #[test]
     fn safe_join_accepts_nested_relative_paths() {

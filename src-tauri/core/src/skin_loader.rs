@@ -78,7 +78,7 @@ pub fn loader_config(backend_url: &str) -> String {
                 "elytra": format!("{base}/skins/cape/{{USERNAME}}.png"),
             },
             // Скины игроков Ely.by, которые не выбрали скин в лаунчере.
-            { "name": "ElyBy", "type": "ElyByAPI", "root": "http://skinsystem.ely.by/textures/" },
+            { "name": "ElyBy", "type": "ElyByAPI", "root": "https://skinsystem.ely.by/textures/" },
             { "name": "Mojang", "type": "MojangAPI" },
             {
                 "name": "LocalSkin",
