@@ -25,6 +25,37 @@ def client(tmp_path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     return TestClient(backend.app)
 
 
+def test_select_limit_counts_the_address_added_by_the_web_server(client: TestClient) -> None:
+    def post(address: str) -> int:
+        payload = {"username": "BloodRayT", "token": TOKEN, "skin": None, "cape": None}
+        headers = {"X-Forwarded-For": address}
+        return client.post("/api/launcher/skins/select", json=payload, headers=headers).status_code
+
+    for _ in range(skins.SELECT_LIMIT):
+        assert post("203.0.113.7") == 200
+    # Подделанный адрес слева не помогает обойти лимит.
+    assert post("198.51.100.1, 203.0.113.7") == 429
+    # Другой игрок за тем же прокси лимитом не задет.
+    assert post("203.0.113.8") == 200
+
+
+def test_oversized_fields_are_rejected(client: TestClient) -> None:
+    assert select(client, username="x" * (skins.MAX_FIELD_LENGTH + 1)) == 422
+
+
+def test_browsers_cannot_post_from_other_sites(client: TestClient) -> None:
+    response = client.options(
+        "/api/launcher/skins/select",
+        headers={"Origin": "https://evil.example", "Access-Control-Request-Method": "POST"},
+    )
+    assert response.status_code == 400
+
+
+def test_api_documentation_is_not_published(client: TestClient) -> None:
+    assert client.get("/docs").status_code == 404
+    assert client.get("/openapi.json").status_code == 404
+
+
 def select(client: TestClient, **body) -> int:
     payload = {"username": "BloodRayT", "token": TOKEN, "skin": None, "cape": None, **body}
     return client.post("/api/launcher/skins/select", json=payload).status_code

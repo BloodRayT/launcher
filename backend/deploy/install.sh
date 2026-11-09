@@ -70,12 +70,32 @@ install_backend() {
 
 setup_apache() {
   log "Apache: адрес /api/launcher/"
-  a2enmod -q proxy proxy_http
+  a2enmod -q proxy proxy_http headers
   cat > "/etc/apache2/conf-available/${APACHE_CONF}.conf" <<EOF
 # Бекенд лаунчера FenixCraft (backend/deploy/install.sh)
 ProxyPass "/api/launcher/" "${BACKEND}/api/launcher/"
 ProxyPassReverse "/api/launcher/" "${BACKEND}/api/launcher/"
 ProxyTimeout 300
+# Запросы к бекенду маленькие: выбор скина занимает меньше килобайта.
+<Location "/api/launcher/">
+    LimitRequestBody 16384
+</Location>
+
+# Заголовки защиты сайта и скрытие версии веб-сервера.
+ServerTokens Prod
+ServerSignature Off
+Header always set X-Content-Type-Options "nosniff"
+Header always set X-Frame-Options "SAMEORIGIN"
+Header always set Referrer-Policy "strict-origin-when-cross-origin"
+Header always set Permissions-Policy "camera=(), microphone=(), geolocation=()"
+
+# Папка сборок: без списка файлов, служебные файлы не отдаются.
+<Directory "${WEB_ROOT}/download">
+    Options -Indexes
+    <FilesMatch "^\.">
+        Require all denied
+    </FilesMatch>
+</Directory>
 EOF
   a2enconf -q "${APACHE_CONF}"
   if ! apache2ctl configtest; then
@@ -93,6 +113,9 @@ location /api/launcher/ {
     proxy_pass ${BACKEND};
     proxy_set_header Host \$host;
     proxy_set_header X-Real-IP \$remote_addr;
+    # Заменяет значение от клиента: по этому адресу бекенд ограничивает частоту запросов.
+    proxy_set_header X-Forwarded-For \$remote_addr;
+    client_max_body_size 16k;
     proxy_read_timeout 300s;
     # Моды отдаются потоком, без временных файлов nginx.
     proxy_max_temp_file_size 0;

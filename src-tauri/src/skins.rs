@@ -9,7 +9,7 @@ use serde_json::{json, Value};
 const MAX_CATALOG_BYTES: usize = 512 * 1024;
 const MAX_TEXTURE_BYTES: usize = 256 * 1024;
 const MAX_CATALOG_ITEMS: usize = 200;
-const ELY_SKINSYSTEM: &str = "http://skinsystem.ely.by";
+const ELY_SKINSYSTEM: &str = "https://skinsystem.ely.by";
 const PNG_SIGNATURE: &[u8] = b"\x89PNG\r\n\x1a\n";
 const UNREACHABLE: &str = "Сервер скинов недоступен. Проверьте интернет и попробуйте позже.";
 
