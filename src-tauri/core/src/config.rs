@@ -3,9 +3,12 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 const CONFIG_FILE: &str = "launcher_config.json";
-const DEFAULT_BACKEND_URL: &str = "http://fenixcraft.ru/api/launcher";
-/// Адрес из прежних версий: сайт пока работает только по HTTP.
-const OLD_BACKEND_URL: &str = "https://fenixcraft.ru/api/launcher";
+const DEFAULT_BACKEND_URL: &str = "https://fenixcraft.ru:8443/api/launcher";
+/// Адреса из прежних версий. Порт 443 на сервере занят, поэтому HTTPS работает на 8443.
+const OLD_BACKEND_URLS: [&str; 2] = [
+    "http://fenixcraft.ru/api/launcher",
+    "https://fenixcraft.ru/api/launcher",
+];
 const DEFAULT_JVM_ARGS: &str = "-XX:+UnlockExperimentalVMOptions -XX:+UseG1GC -XX:G1NewSizePercent=20 -XX:G1ReservePercent=20 -XX:MaxGCPauseMillis=50 -XX:G1HeapRegionSize=32M";
 /// Сборки на главной в порядке показа: FenixCraft (NeoForge 26.2 с сервером сборок),
 /// последняя ванильная версия и три клиента FenixClient на 1.21.11.
@@ -261,8 +264,8 @@ impl LauncherConfig {
             "ely" if !self.ely_uuid.is_empty() => "ely",
             _ => "offline",
         };
-        let backend_is_default =
-            self.backend_url.trim().is_empty() || self.backend_url == OLD_BACKEND_URL;
+        let backend_is_default = self.backend_url.trim().is_empty()
+            || OLD_BACKEND_URLS.contains(&self.backend_url.as_str());
         Self {
             account_type: account_type.to_string(),
             ram: self.ram.clamp(MIN_RAM_MB, MAX_RAM_MB),
@@ -464,19 +467,22 @@ mod tests {
     }
 
     #[test]
-    fn old_https_backend_address_moves_to_http() {
-        let old = LauncherConfig {
-            backend_url: OLD_BACKEND_URL.to_string(),
-            ..LauncherConfig::default()
+    fn old_backend_addresses_move_to_https() {
+        for address in OLD_BACKEND_URLS {
+            let old = LauncherConfig {
+                backend_url: address.to_string(),
+                ..LauncherConfig::default()
+            }
+            .normalized();
+            assert_eq!(old.backend_url, DEFAULT_BACKEND_URL);
         }
-        .normalized();
+        assert!(DEFAULT_BACKEND_URL.starts_with("https://"));
         let custom = LauncherConfig {
             backend_url: "https://my.backend/api".to_string(),
             ..LauncherConfig::default()
         }
         .normalized();
 
-        assert_eq!(old.backend_url, DEFAULT_BACKEND_URL);
         assert_eq!(custom.backend_url, "https://my.backend/api");
     }
 

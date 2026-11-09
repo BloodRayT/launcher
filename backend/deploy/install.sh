@@ -98,6 +98,8 @@ Header always set Permissions-Policy "camera=(), microphone=(), geolocation=()"
 </Directory>
 EOF
   a2enconf -q "${APACHE_CONF}"
+  # security.conf подключается позже и иначе вернул бы показ версии сервера.
+  sed -i -E 's/^ServerTokens .*/ServerTokens Prod/; s/^ServerSignature .*/ServerSignature Off/' /etc/apache2/conf-available/security.conf
   if ! apache2ctl configtest; then
     a2disconf -q "${APACHE_CONF}"
     fail "Apache не принял настройки, подключение отменено"
