@@ -35,13 +35,12 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["GET"])
 
 STORAGE_DIR = os.path.join(os.path.dirname(__file__), "storage")
 SERVERS_FILE = os.path.join(os.path.dirname(__file__), "servers.json")
-BASE_PUBLIC_URL = os.getenv("BASE_PUBLIC_URL", "http://fenixcraft.ru/api/launcher")
 PROFILE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-][A-Za-z0-9._-]{0,63}$")
 # Хеш файла пересчитывается только после его изменения: путь -> (mtime_ns, размер, sha256).
 HASH_CACHE: dict = {}
 
 os.makedirs(STORAGE_DIR, exist_ok=True)
-# Манифест отдаёт ссылки вида {BASE_PUBLIC_URL}/files/..., поэтому файлы доступны и по этому пути.
+# Манифест отдаёт ссылки относительно адреса бекенда: лаунчер скачивает файлы тем же способом, что и манифест.
 app.mount("/api/launcher/files", StaticFiles(directory=STORAGE_DIR), name="launcher-files")
 app.mount("/files", StaticFiles(directory=STORAGE_DIR), name="files")
 app.include_router(skins.router)
@@ -103,7 +102,7 @@ def get_profile_manifest(profile: str):
             full_path = os.path.join(root, fname)
             rel_path = os.path.relpath(full_path, profile_dir).replace("\\", "/")
             file_hash, file_size = cached_file_info(full_path)
-            download_url = f"{BASE_PUBLIC_URL}/files/{quote(profile)}/{quote(rel_path)}"
+            download_url = f"files/{quote(profile)}/{quote(rel_path)}"
 
             files_list.append({
                 "path": rel_path,
