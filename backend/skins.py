@@ -16,7 +16,7 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 BASE_DIR = os.path.dirname(__file__)
 CATALOG_DIR = os.getenv("CATALOG_DIR", os.path.join(BASE_DIR, "catalog"))
@@ -34,6 +34,8 @@ NO_CACHE = {"Cache-Control": "no-cache"}
 MAX_PLAYERS = 20000
 SELECT_LIMIT = 10
 SELECT_WINDOW_SECONDS = 60
+MAX_FIELD_LENGTH = 128
+MAX_ADDRESS_LENGTH = 64
 
 router = APIRouter(prefix="/api/launcher/skins")
 _players_lock = threading.Lock()
@@ -43,10 +45,10 @@ _recent_selects: dict = {}
 
 
 class Selection(BaseModel):
-    username: str
-    token: str
-    skin: Optional[str] = None
-    cape: Optional[str] = None
+    username: str = Field(max_length=MAX_FIELD_LENGTH)
+    token: str = Field(max_length=MAX_FIELD_LENGTH)
+    skin: Optional[str] = Field(default=None, max_length=MAX_FIELD_LENGTH)
+    cape: Optional[str] = Field(default=None, max_length=MAX_FIELD_LENGTH)
 
 
 def _item_path(kind: str, item_id: Optional[str]) -> Optional[str]:
@@ -102,6 +104,17 @@ def _load_players() -> dict:
     return players
 
 
+def _client_address(request: Request) -> str:
+    """Адрес игрока за веб-сервером: иначе все игроки выглядели бы одним адресом прокси.
+
+    Порт бекенда открыт только для веб-сервера. Настоящий адрес он дописывает в конец
+    X-Forwarded-For, а всё, что левее, мог прислать сам клиент.
+    """
+    forwarded = request.headers.get("x-forwarded-for", "")
+    address = forwarded.rsplit(",", 1)[-1].strip()[:MAX_ADDRESS_LENGTH]
+    return address or (request.client.host if request.client else "unknown")
+
+
 def _allow_select(address: str) -> bool:
     """Не больше SELECT_LIMIT выборов в минуту с одного адреса."""
     now = time.monotonic()
@@ -152,7 +165,7 @@ def get_catalog():
 def select(selection: Selection, request: Request):
     """Первый выбор закрепляет ник за установкой лаунчера: дальше его меняет только тот же токен.
     Снять чужую привязку администратор может, удалив запись ника из data/players.json."""
-    if not _allow_select(request.client.host if request.client else "unknown"):
+    if not _allow_select(_client_address(request)):
         raise HTTPException(status_code=429, detail="Too many requests")
     if not USERNAME.fullmatch(selection.username) or not TOKEN.fullmatch(selection.token):
         raise HTTPException(status_code=400, detail="Bad username or token")

@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,14 +13,25 @@ import feeds
 import skins
 import updates
 
-app = FastAPI(title="FenixCraft Launcher Backend v1.0")
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    # Сервер сам держит копию установщика последнего релиза для игроков, у которых не открывается GitHub.
+    updates.start_sync()
+    yield
+
+
+# Схема API не нужна игрокам, поэтому страницы документации выключены.
+app = FastAPI(
+    title="FenixCraft Launcher Backend v1.0",
+    lifespan=lifespan,
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
 )
+
+# Из браузера доступно только чтение: выбор скина отправляет сам лаунчер, ему CORS не нужен.
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["GET"])
 
 STORAGE_DIR = os.path.join(os.path.dirname(__file__), "storage")
 SERVERS_FILE = os.path.join(os.path.dirname(__file__), "servers.json")
@@ -33,8 +46,6 @@ app.mount("/api/launcher/files", StaticFiles(directory=STORAGE_DIR), name="launc
 app.mount("/files", StaticFiles(directory=STORAGE_DIR), name="files")
 app.include_router(skins.router)
 app.include_router(updates.router)
-# Сервер сам держит копию установщика последнего релиза для игроков, у которых не открывается GitHub.
-app.add_event_handler("startup", updates.start_sync)
 
 def sha256_of_file(filepath: str) -> str:
     h = hashlib.sha256()

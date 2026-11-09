@@ -17,11 +17,20 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+    # Даже при взломе приложения контейнер не сможет менять систему и получать новые права.
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     volumes:
-      - ./storage:/app/storage
-      - ./servers.json:/app/servers.json
+      # Моды, раздаваемые игрокам, и список серверов контейнер только читает.
+      - ./storage:/app/storage:ro
+      - ./servers.json:/app/servers.json:ro
       # Каталог скинов и плащей (кладёт администратор) и выбор игроков.
-      - ./catalog:/app/catalog
+      - ./catalog:/app/catalog:ro
       - ./data:/app/data
       # Копия установщика лаунчера: сервер скачивает её с GitHub сам.
       - ./updates:/app/updates
