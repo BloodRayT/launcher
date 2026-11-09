@@ -14,7 +14,7 @@ sha1 = "0.10"
 sha2 = "0.10"
 hex = "0.4"
 encoding_rs = "0.8"
-dirs = "5.0"
+dirs = "7.0"
 uuid = { version = "1.10", features = ["v3", "v4"] }
 zip = "9"
 
